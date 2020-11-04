@@ -189,7 +189,7 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 			// this is the left shift by 1 bit
 			__m512i tempL = _mm512_slli_epi64(leftKeys[w], 1);
 			__m512i tempR = _mm512_srli_epi64(leftKeys[w], 63);
-			tempR = _mm512_shuffle_epi32(tempR, _MM_SHUFFLE(1, 0, 3, 2)); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
+			tempR = _mm512_shuffle_epi32(tempR, _MM_PERM_BADC); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
 			const __m512i topExtractor = _mm512_set_epi64(
 				~0, 0,
 				~0, 0,
@@ -200,7 +200,7 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 
 			tempL = _mm512_slli_epi64(rightKeys[w], 1);
 			tempR = _mm512_srli_epi64(rightKeys[w], 63);
-			tempR = _mm512_shuffle_epi32(tempR, 0x4E); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
+			tempR = _mm512_shuffle_epi32(tempR, _MM_PERM_BADC); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
 			topBit = _mm512_and_si512(tempR, topExtractor);
 			rightKeys[w] = _mm512_xor_si512(tempL, topBit);
 
@@ -330,7 +330,7 @@ void FixedKeyLTGarblingVaesProcessor::fillAESBufferAND(size_t baseOffset, uint32
 			// this is the left shift by 1 bit
 			__m512i tempL = _mm512_slli_epi64(keys[w], 1);
 			__m512i tempR = _mm512_srli_epi64(keys[w], 63);
-			tempR = _mm512_shuffle_epi32(tempR, 0x4E); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap, note that this instruction is within 128-bit lanes
+			tempR = _mm512_shuffle_epi32(tempR, _MM_PERM_BADC); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap, note that this instruction is within 128-bit lanes
 			__m512i topExtractor = _mm512_set_epi64(
 				~0, 0,
 				~0, 0,
