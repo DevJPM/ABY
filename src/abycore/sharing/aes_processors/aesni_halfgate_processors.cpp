@@ -434,7 +434,7 @@ inline void FixedKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 
 		for (size_t w = 0; w < width; ++w)
 		{
-			__m128 temp = _mm_xor_si128(data[2 * w + 0], data[2 * w + 1]);
+			__m128i temp = _mm_xor_si128(data[2 * w + 0], data[2 * w + 1]);
 			_mm_storeu_si128((__m128i*)(targetGateKey[w]), temp);
 		}	
 	}
@@ -561,7 +561,7 @@ inline void InputKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 
 		for (size_t w = 0; w < width; ++w)
 		{
-			__m128 temp = _mm_xor_si128(data[2 * w + 0], data[2 * w + 1]);
+			__m128i temp = _mm_xor_si128(data[2 * w + 0], data[2 * w + 1]);
 			_mm_storeu_si128((__m128i*)(targetGateKey[w]), temp);
 		}
 	}
