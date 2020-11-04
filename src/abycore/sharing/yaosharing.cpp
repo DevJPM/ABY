@@ -54,9 +54,11 @@ BOOL YaoSharing::EncryptWire(BYTE* c, BYTE* p, uint32_t id)
 {
 	memset(m_bTempKeyBuf, 0, AES_BYTES);
 	memcpy(m_bTempKeyBuf, (BYTE*) (&id), sizeof(uint32_t));
+
 	m_pKeyOps->XOR_DOUBLE_B(m_bTempKeyBuf, m_bTempKeyBuf, p);
 	//m_pKeyOps->XOR(m_bTempKeyBuf, m_bTempKeyBuf, p);
 	m_cCrypto->encrypt(m_kGarble, m_bResKeyBuf, m_bTempKeyBuf, AES_BYTES);
+
 
 	m_pKeyOps->XOR(c, m_bResKeyBuf, m_bTempKeyBuf);
 
@@ -93,13 +95,13 @@ BOOL YaoSharing::EncryptWireGRR3(BYTE* c, BYTE* p, BYTE* l, BYTE* r, uint32_t id
 
 
 #ifdef DEBUGYAO
-	cout << endl << " encrypting : ";
+	std::cout << std::endl << " encrypting : ";
 	PrintKey(p);
-	cout << " using: ";
+	std::cout << " using: ";
 	PrintKey(l);
-	cout << " and : ";
+	std::cout << " and : ";
 	PrintKey(r);
-	cout << " to : ";
+	std::cout << " to : ";
 	PrintKey(c);
 #endif
 

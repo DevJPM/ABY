@@ -23,7 +23,10 @@
 #include <algorithm>
 #include <deque>
 #include <vector>
+#include <memory>
 #include "yaosharing.h"
+#include "../ABY_utils/memory.h"
+#include "aes_processors/aes_processor.h"
 
 
 //#define DEBUGYAOSERVER
@@ -37,7 +40,7 @@ public:
 	 Constructor of the class.
 	 */
 	YaoServerSharing(e_sharing context, e_role role, uint32_t sharebitlen, ABYCircuit* circuit, crypto* crypt, const std::string& circdir = ABY_CIRCUIT_DIR) :
-			YaoSharing(context, role, sharebitlen, circuit, crypt, circdir) {
+			YaoSharing(context, role, sharebitlen, circuit, crypt, circdir), m_aAESBuffer(static_cast<uint8_t*>(std::aligned_alloc(64,M_AES_STREAM_PROCESSING_BUFFER_SIZE))){
 		InitServer();
 	}
 	;
@@ -73,7 +76,22 @@ public:
 	;
 	//ENDS HERE..
 
+	struct GarbledTableJob
+	{
+		GATE* owningGate;
+		const uint32_t simdPosition;
+		const uint32_t owningGateID;
+	};
+
 private:
+	// would prefer a larger window, but it would be quite mean...
+	// so we opt for the small one instead
+	// constexpr static size_t M_AES_STREAM_PROCESSING_BUFFER_SIZE = 16 * 4 * 4 * 1024; /**< size of the internal AES processing buffer, 16 byte per AES block, 4 blocks per AND gate, 4096 per batch*/
+	constexpr static size_t M_AES_STREAM_PROCESSING_BUFFER_SIZE = GARBLED_TABLE_WINDOW / 8;
+	std::unique_ptr<uint8_t[], free_byte_deleter> m_aAESBuffer;/**< Buffer for the internal AES processing, 64 byte alignment to facilitate AVX-512 accesses*/
+	std::vector<GarbledTableJob> m_vCurrentANDGates; /**< Pointer to the current layer's AND gates, one entry per garbled table (i.e. one per bit which means >1 per SIMD AND)*/
+	std::unique_ptr<AESProcessorHalfGateGarbling> m_aesProcessor; /**< Processor for the generation of the garbled table PRF calls in a more optimized way*/
+
 	//Global constant key
 	CBitVector m_vR; /**< _____________*/
 	//Permutation bits for the servers input keys
@@ -199,7 +217,7 @@ private:
 	 \param gleft	left gate in the queue.
 	 \param gright	right gate in the queue.
 	 */
-	void CreateGarbledTable(GATE* ggate, uint32_t pos, GATE* gleft, GATE* gright);
+	void CreateGarbledTablePrepared(GATE* ggate, uint32_t pos, GATE* gleft, GATE* gright);
 	/**
 	 PrecomputeGC______________
 	 \param queue 	Dequeue Object.
@@ -236,6 +254,35 @@ private:
 	 Method for assigning Output shares.
 	 */
 	void AssignOutputShares();
+
+	/**
+	* Evaluates the AND gate by computing the wire keys / mask buffers just in time before the table evaluation
+	* \param ggate the gate for which the wire keys are to be computed
+	* \param pos the SIMD position
+	* \param gleft left parent gate
+	* \param gright right parent gate
+	*/
+	void CreateGarbledTableJIT(GATE* ggate, uint32_t pos,GATE* gleft,GATE* gright);
+
+	/** 
+	* Evaluates the AND gate by copying the pre-computed wire keys into the appropriate buffer(s)
+	* \param gate The AND gate to be evaluated as well as the simd position within the gate
+	* \param bufferOffset the offset (number of tables) into the m_aAESBuffer
+	*/
+	void CreateGarbledTablePrecomputed(const GarbledTableJob& gate, size_t bufferOffset);
+
+	/**
+	* Evaluates the AND garbled tables queued up in m_vCurrentANDGates and sends them off
+	* \param setup used to send the garbled tables off whenever a batch is full
+	*/
+	void EvaluateDeferredANDGates(ABYSetup* setup);
+
+	/**
+	* Checks whether the gate with the given id is an AND gate that has not yet been processed
+	* and thus would cause an error if referenced. Returns true if such an error would be produced.
+	* \param gateid the gate to be checked
+	*/
+	bool CheckIfGateTrapsANDGates(uint32_t gateid) const;
 };
 
 #endif /* __YAOSERVERSHARING_H__ */

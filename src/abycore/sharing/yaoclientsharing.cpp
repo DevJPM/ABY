@@ -18,6 +18,11 @@
 #include "yaoclientsharing.h"
 #include "../aby/abysetup.h"
 #include <cstdlib>
+#include "aes_processors/aesni_halfgate_processors.h"
+#include "aes_processors/vaes_halfgate_processors.h"
+#include "../cpu_features/include/cpuinfo_x86.h"
+
+static const cpu_features::X86Features CPU_FEATURES = cpu_features::GetX86Info().features;
 
 void YaoClientSharing::InitClient() {
 
@@ -32,6 +37,24 @@ void YaoClientSharing::InitClient() {
 	m_nClientOUTBitCtr = 0;
 
 	m_nKeyInputRcvIdx = 0;
+
+	if (m_nSecParamBytes != 16)
+	{
+		std::cerr << "unsupported security parameter." << std::endl;
+		assert(false);
+	}
+	else
+	{
+		if (CPU_FEATURES.vaes && CPU_FEATURES.avx512f)
+			m_aesProcessor = std::make_unique<FixedKeyLTEvaluatingVaesProcessor>(m_vCurrentANDGates, m_vGates);
+		else if(CPU_FEATURES.aes && CPU_FEATURES.ssse3)
+			m_aesProcessor = std::make_unique<FixedKeyLTEvaluatingAesniProcessor>(m_vCurrentANDGates, m_vGates);
+		else
+		{
+			std::cerr << "unsupported host CPU." << std::endl;
+			assert(false);
+		}	
+	}
 
 	m_vClientKeyRcvBuf.resize(2);
 
@@ -162,17 +185,47 @@ void YaoClientSharing::FinishSetupPhase(ABYSetup* setup) {
 #endif
 }
 void YaoClientSharing::EvaluateLocalOperations(uint32_t depth) {
-
+	assert(m_vCurrentANDGates.size() == 0);
+	size_t queuedTables = 0;
 	std::deque<uint32_t> localops = m_cBoolCircuit->GetLocalQueueOnLvl(depth);
 
 	//std::cout << "In total I have " <<  localops.size() << " local operations to evaluate on this level " << std::endl;
 	for (uint32_t i = 0; i < localops.size(); i++) {
 		GATE* gate = &(m_vGates[localops[i]]);
+
+		bool needToProcessANDGates = false;
+		const uint32_t ningates = gate->ingates.ningates;
+		if (ningates == 1)
+		{
+			uint32_t parentID = gate->ingates.inputs.parent;
+			if (parentID < m_vGates.size())
+				needToProcessANDGates = CheckIfGateTrapsANDGates(gate->ingates.inputs.parent);
+			else // apparently conversion gates like to use the pointer with 1 input!?
+				needToProcessANDGates = CheckIfGateTrapsANDGates(gate->ingates.inputs.parents[0]);
+		}
+		else if (ningates == 2)
+		{
+			needToProcessANDGates = CheckIfGateTrapsANDGates(gate->ingates.inputs.twin.left) || CheckIfGateTrapsANDGates(gate->ingates.inputs.twin.right);
+		}
+		else
+		{
+			needToProcessANDGates = std::any_of(gate->ingates.inputs.parents, gate->ingates.inputs.parents + gate->ingates.ningates, [this](uint32_t x) {return CheckIfGateTrapsANDGates(x); });
+		}
+
+		if (needToProcessANDGates)
+		{
+			//std::cout << "trapped with " << m_vCurrentANDGates.size()<< " queued." << std::endl;
+			EvaluateDeferredANDGates(queuedTables);
+			queuedTables = 0;
+		}
+
 		//std::cout << "Evaluating gate " << localops[i] << " with context = " << gate->context << std::endl;
 		if (gate->type == G_LIN) {
 			EvaluateXORGate(gate);
 		} else if (gate->type == G_NON_LIN) {
-			EvaluateANDGate(gate);
+			m_vCurrentANDGates.push_back(gate);
+			queuedTables += gate->nvals;
+			//EvaluateANDGate(gate);
 		} else if (gate->type == G_CONSTANT) {
 			InstantiateGate(gate);
 			memset(gate->gs.yval, 0, m_nSecParamBytes * gate->nvals);
@@ -209,6 +262,17 @@ void YaoClientSharing::EvaluateLocalOperations(uint32_t depth) {
 			std::exit(EXIT_FAILURE);
 		}
 	}
+	EvaluateDeferredANDGates(queuedTables);
+}
+
+bool YaoClientSharing::CheckIfGateTrapsANDGates(uint32_t gate) const
+{
+	GATE* ptr = &m_vGates[gate];
+	if (ptr->type != G_NON_LIN)
+		return false;
+	// TODO: If this becomes a performance issue, use some sort of vector-stored set of the gateids
+	// and then binary search + sort? or use a proper std::set
+	return std::any_of(m_vCurrentANDGates.begin(), m_vCurrentANDGates.end(), [ptr](const GATE* g) {return g == ptr; });
 }
 
 void YaoClientSharing::EvaluateInteractiveOperations(uint32_t depth) {
@@ -295,7 +359,7 @@ void YaoClientSharing::EvaluateANDGate(GATE* gate) {
 	//evaluate garbled table
 	InstantiateGate(gate);
 	for (uint32_t g = 0; g < gate->nvals; g++) {
-		EvaluateGarbledTable(gate, g, gleft, gright);
+		EvaluateGarbledTableJIT(gate, g, gleft, gright);
 		m_nGarbledTableCtr++;
 
 		//Pipelined receive - TODO: outsource in own thread
@@ -311,7 +375,53 @@ void YaoClientSharing::EvaluateANDGate(GATE* gate) {
 	UsedGate(idright);
 }
 
-BOOL YaoClientSharing::EvaluateGarbledTable(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright)
+void YaoClientSharing::EvaluateDeferredANDGates(size_t numTablesInQueue)
+{
+	// the buffers are needed for the batch processing
+	for (auto* currentGate : m_vCurrentANDGates)
+		InstantiateGate(currentGate);
+
+	// we call into another class here as this allows us to exploit dynamic dispatch
+	// to switch between AES256, AES128, AES-NI and VAES as needed based on a ctor parameter
+	// This essentially does the wire encrypting previously done just-in-time
+	// TODO: If time, do some fancy software pipelining tricks and also do the actual table generation?
+	m_aesProcessor->computeAESPreOutKeys(m_nGarbledTableCtr, numTablesInQueue);
+
+	for (auto* currentGate : m_vCurrentANDGates)
+	{
+		uint32_t idleft = currentGate->ingates.inputs.twin.left; //gate->gs.ginput.left;
+		uint32_t idright = currentGate->ingates.inputs.twin.right; //gate->gs.ginput.right;
+		GATE* gleft = &(m_vGates[idleft]);
+		GATE* gright = &(m_vGates[idright]);
+
+		for (uint32_t i = 0; i < currentGate->nvals; ++i)
+		{
+			EvaluateGarbledTablePrepared(currentGate, i, gleft, gright);
+			m_nGarbledTableCtr++;
+		}
+
+		UsedGate(currentGate->ingates.inputs.twin.left);
+		UsedGate(currentGate->ingates.inputs.twin.right);
+	}
+
+	m_vCurrentANDGates.clear();
+}
+
+BOOL YaoClientSharing::EvaluateGarbledTableJIT(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright)
+{
+	uint8_t* okey = gate->gs.yval + pos * m_nSecParamBytes;
+	uint8_t* lkey = gleft->gs.yval + pos * m_nSecParamBytes;
+	uint8_t* rkey = gright->gs.yval + pos * m_nSecParamBytes;
+
+	EncryptWire(m_vTmpEncBuf[0], lkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr);
+	EncryptWire(m_vTmpEncBuf[1], rkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr+1);
+
+	m_pKeyOps->XOR(okey, m_vTmpEncBuf[0], m_vTmpEncBuf[1]);//gc_xor(okey, encbuf[0], encbuf[1]);
+
+	return EvaluateGarbledTablePrepared(gate, pos, gleft, gright);
+}
+
+BOOL YaoClientSharing::EvaluateGarbledTablePrepared(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright)
 {
 
 	uint8_t *lkey, *rkey, *okey, *gtptr;
@@ -327,10 +437,10 @@ BOOL YaoClientSharing::EvaluateGarbledTable(GATE* gate, uint32_t pos, GATE* glef
 
 	assert(lpbit < 2 && rpbit < 2);
 
-	EncryptWire(m_vTmpEncBuf[0], lkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr);
-	EncryptWire(m_vTmpEncBuf[1], rkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr+1);
+	//EncryptWire(m_vTmpEncBuf[0], lkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr);
+	//EncryptWire(m_vTmpEncBuf[1], rkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr+1);
 
-	m_pKeyOps->XOR(okey, m_vTmpEncBuf[0], m_vTmpEncBuf[1]);//gc_xor(okey, encbuf[0], encbuf[1]);
+	//m_pKeyOps->XOR(okey, m_vTmpEncBuf[0], m_vTmpEncBuf[1]);//gc_xor(okey, encbuf[0], encbuf[1]);
 
 	if(lpbit) {
 		m_pKeyOps->XOR(okey, okey, gtptr);//gc_xor(okey, okey, gtptr);
@@ -552,7 +662,7 @@ void YaoClientSharing::GetDataToSend(std::vector<BYTE*>& sendbuf, std::vector<ui
 		sndbytes.push_back(ceil_divide(m_nServerOutputShareCtr, 8));
 	}
 
-#ifdef DEBUGYAO
+#ifdef DEBUGYAOCLIENT
 	if(m_nInputShareSndSize > 0) {
 		std::cout << "Sending " << m_nInputShareSndSize << " Input shares : ";
 		m_vInputShareSndBuf.Print(0, m_nInputShareSndSize);

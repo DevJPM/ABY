@@ -15,8 +15,15 @@ add_library(aby
     sharing/yaoclientsharing.cpp
     sharing/yaoserversharing.cpp
     sharing/yaosharing.cpp
-)
+    sharing/yao_variants/halfgates_prp.cpp
+    sharing/yao_variants/halfgates_circ.cpp
+    sharing/yao_variants/yao_prf.cpp 
+    sharing/aes_processors/aesni_halfgate_processors.cpp
+    sharing/aes_processors/vaes_halfgate_processors.cpp)
 add_library(ABY::aby ALIAS aby)
+
+set_source_files_properties(sharing/aes_processors/aesni_halfgate_processors.cpp PROPERTIES COMPILE_FLAGS "-maes -mssse3")
+set_source_files_properties(sharing/aes_processors/vaes_halfgate_processors.cpp PROPERTIES COMPILE_FLAGS "-mvaes -mavx512f")
 
 target_compile_features(aby PUBLIC cxx_std_17)
 #target_compile_options(aby PRIVATE "-Wall" "-Wextra" "-Weffc++")
@@ -28,12 +35,17 @@ target_include_directories(aby
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
 )
 
+export(EXPORT CpuFeaturesTargets
+    FILE "${CMAKE_CURRENT_BINARY_DIR}/cmake/cpu_features.cmake"
+)
+
 # This assumes that libstdc++ is used and should not be required for e.g.
 # libc++.  Linking to libstdc++fs is currently required when using the
 # std::filesystem library.
 # cf. https://gitlab.kitware.com/cmake/cmake/issues/17834
 target_link_libraries(aby
 	PRIVATE stdc++fs
+    PRIVATE cpu_features
 )
 
 target_link_libraries(aby

@@ -30,7 +30,7 @@
 //#define DEBUGCOMM
 #define DEBUGABYPARTY 0
 
-#define PRINT_PERFORMANCE_STATS 0 //prints overall runtime statistics and gate counts
+#define PRINT_PERFORMANCE_STATS 1 //prints overall runtime statistics and gate counts
 #define PRINT_COMMUNICATION_STATS 0 //prints communication statistics
 #define BENCHONLINEPHASE 0 //show very detailed runtime statistic on each sharing for online phase, typically for troubleshooting
 

@@ -20,7 +20,9 @@
 
 #include "sharing.h"
 #include <algorithm>
+#include <memory>
 #include "yaosharing.h"
+#include "aes_processors/aes_processor.h"
 
 //#define DEBUGYAOCLIENT
 
@@ -67,6 +69,8 @@ public:
 	//ENDS HERE..
 
 private:
+	std::vector<GATE*> m_vCurrentANDGates; /**< Queue of AND gates that still need to be evaluated*/
+	std::unique_ptr<AESProcessorHalfGateEvaluation> m_aesProcessor; /**< Processor for the generation of the garbled table PRF calls in a more optimized way*/
 
 	CBitVector m_vROTMasks; /**< Masks_______________*/
 	uint32_t m_nChoiceBitCtr; /**< Choice bits counter.*/
@@ -138,7 +142,7 @@ private:
 	 \param gleft	left gate in the queue.
 	 \param gright	right gate in the queue.
 	 */
-	BOOL EvaluateGarbledTable(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright);
+	BOOL EvaluateGarbledTablePrepared(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright);
 	/**
 	 Method for evaluating UNIV gate for the inputted
 	 gate object.
@@ -186,6 +190,28 @@ private:
 	 \param setup 	ABYSetup Object.
 	 */
 	void ReceiveGarbledCircuitAndOutputShares(ABYSetup* setup);
+
+	/**
+	* Method for evaluating a single garbled table with the required AES computations being done right before they are used
+	* \param gate the gate for which to evaluate the table
+	* \param pos the simd position within the gate
+	* \param gleft a pointer to the left parent gate
+	* \param gright a pointer to the right parent gate
+	*/
+	BOOL EvaluateGarbledTableJIT(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright);
+
+	/**
+	* Method for clearing the queued AND gates and evaluating them all at once using parallelized / pipelined batch processing
+	* \param numTablesInBatch the number of garbled tables of all wires in the queue, this is equivalent to the number of output wires
+	*                         and in particular includes each SIMD wire
+	*/
+	void EvaluateDeferredANDGates(size_t numTablesInBatch);
+
+	/**
+	* Method for checking whether the specified gate is an AND gate that has yet to be processed, useful primarily for checking dependencies
+	* \param gate the gate that has to be checked to decide whether to clear the AND gate queue
+	*/
+	bool CheckIfGateTrapsANDGates(uint32_t gate) const;
 };
 
 #endif /* __YAOCLIENTSHARING_H__ */

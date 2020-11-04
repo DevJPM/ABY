@@ -22,8 +22,9 @@
 #include <ENCRYPTO_utils/typedefs.h>
 /* an interface to operations on yaos garbled circuits keys for pre-defined symmetric security sizes */
 
-#define _MSB_uint64_t 0x80000000000000L
-#define _TWO_MSB_uint64_t 0xC0000000000000L
+// not ethat this will be fast because of constant folding
+#define _MSB_uint64_t (1ull<<63) //0x80000000000000L // the old definition was actually off by 1 byte...
+#define _TWO_MSB_uint64_t (3ull<<62) // 0xC0000000000000L // the old definition was actually off by 1 byte...
 #define _TWO_MSB_DOWNSHIFT 62
 
 class YaoKey {

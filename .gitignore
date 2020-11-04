@@ -29,3 +29,6 @@ CTestTestfile.cmake
 
 # VS Code Directory
 .vscode/
+
+# Proper VS Directory
+.vs/

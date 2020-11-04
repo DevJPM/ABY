@@ -28,6 +28,14 @@ if(NOT CMAKE_ARCHIVE_OUTPUT_DIRECTORY)
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")
 endif()
 
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/extern/cpu_features/CMakeLists.txt")
+        find_package(Git REQUIRED)
+        message("initialize Git submodule: extern/cpu_features")
+        execute_process(COMMAND git submodule update --init extern/cpu_features
+                        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+endif()
+add_subdirectory(extern/cpu_features)
+
 find_package(ENCRYPTO_utils QUIET)
 if(ENCRYPTO_utils_FOUND)
     message(STATUS "Found ENCRYPTO_utils")

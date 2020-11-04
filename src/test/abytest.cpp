@@ -246,6 +246,7 @@ int32_t test_standard_ops(aby_ops_t* test_ops, ABYParty* party, uint32_t bitlen,
 				shrres = circ->PutADDGate(shra, shrb);
 				yc = sharings[S_YAO]->GetCircuitBuildRoutine();
 				shrres = yc->PutB2YGate(shrres);
+				//shrres = yc->PutADDGate(shrres, shrres);
 				shrres = yc->PutMULGate(shrres, shrres);
 				circ = yc;
 				verify = (a + b) * (a + b);
