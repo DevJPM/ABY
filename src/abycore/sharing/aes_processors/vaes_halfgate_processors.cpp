@@ -14,6 +14,21 @@
 constexpr size_t mainGarblingWidthVaes = 4;
 constexpr size_t mainEvaluatingWidthVaes = 8;
 
+static void PrintKey(__m512i data) {
+	uint8_t key[64];
+	_mm512_storeu_si512((__m512i*)key, data);
+
+	for (int j = 0; j < 64; j += 16)
+	{
+		for (uint32_t i = 0; i < 16; i++) {
+			std::cout << std::setw(2) << std::setfill('0') << (std::hex) << (uint32_t)key[i + j];
+		}
+		std::cout << std::endl;
+	}
+
+	std::cout << (std::dec);
+}
+
 void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tableCounter, size_t numTablesInBatch)
 {
 	if (m_gateQueue.size() == 0)
@@ -25,7 +40,7 @@ void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tableCount
 	computeAESPreOutKeys<mainEvaluatingWidthVaes>(tableCounter, 0, 0, mainBulkSize);
 
 	size_t numTablesLeft = 0;
-	size_t ridx;
+	int64_t ridx;
 
 	for (ridx = m_gateQueue.size() - 1; ridx >= 0; --ridx)
 	{
@@ -174,7 +189,7 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 			// this is the left shift by 1 bit
 			__m512i tempL = _mm512_slli_epi64(leftKeys[w], 1);
 			__m512i tempR = _mm512_srli_epi64(leftKeys[w], 63);
-			tempR = _mm512_shuffle_epi32(tempR, 0x4E); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
+			tempR = _mm512_shuffle_epi32(tempR, _MM_SHUFFLE(1, 0, 3, 2)); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
 			const __m512i topExtractor = _mm512_set_epi64(
 				~0, 0,
 				~0, 0,

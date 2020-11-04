@@ -24,21 +24,6 @@ static void PrintKey(__m128i data) {
 	std::cout << (std::dec);
 }
 
-static void PrintKey(__m512i data) {
-	uint8_t key[64];
-	_mm512_storeu_si512((__m512i*)key, data);
-
-	for (int j = 0; j < 64; j += 16)
-	{
-		for (uint32_t i = 0; i < 16; i++) {
-			std::cout << std::setw(2) << std::setfill('0') << (std::hex) << (uint32_t)key[i+j];
-		}
-		std::cout << std::endl;
-	}
-	
-	std::cout << (std::dec);
-}
-
 // width in number of tables
 // bufferOffset in bytes
 template<size_t width>
@@ -579,7 +564,7 @@ void FixedKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t tableCoun
 	computeAESPreOutKeys<mainEvaluatingWidthNI>(tableCounter,0,0, mainBulkSize);
 
 	size_t numTablesLeft = 0;
-	size_t ridx;
+	int64_t ridx;
 
 	for (ridx = m_gateQueue.size()-1; ridx >= 0; --ridx)
 	{
@@ -607,7 +592,7 @@ void InputKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t tableCoun
 	computeAESPreOutKeys<mainEvaluatingWidthNI>(tableCounter, 0, 0, mainBulkSize);
 
 	size_t numTablesLeft = 0;
-	size_t ridx;
+	int64_t ridx;
 
 	for (ridx = m_gateQueue.size() - 1; ridx >= 0; --ridx)
 	{
