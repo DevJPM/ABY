@@ -40,7 +40,7 @@ struct GATE;
 
 struct yao_fields {
 	//The output wire key
-	BYTE* outKey;
+	BYTE* outKey[2];
 	//The permutation bit for point-and-permute
 	BYTE* pi;
 };

@@ -141,11 +141,14 @@ protected:
 	uint32_t m_nServerInputBits; /**< Server Input Bits. */
 	CBitVector m_vServerInputKeys; /**< Server Input Keys. */
 
-	CBitVector m_vGarbledCircuit; /**< Garbled Circuit Vector.*/
-	uint64_t m_nGarbledTableCtr; /**< Garbled Table Counter. */
+	CBitVector m_vAndGateTable; /**< Garbled Circuit Vector.*/
+	uint64_t m_nAndGateTableCtr; /**< Garbled Table Counter. */
 
 	CBitVector m_vUniversalGateTable; /**< Table for the universal gates.*/
 	uint64_t m_nUniversalGateTableCtr; /**< Universal Gate Table Counter. */
+
+	CBitVector m_vXorGateTable;
+	uint64_t m_nXorGateTableCtr;
 
 	BYTE* m_bZeroBuf; /**< Zero Buffer. */
 	BYTE* m_bTempKeyBuf; /**< Temporary Key Buffer. */
@@ -183,6 +186,17 @@ protected:
 
 	/** Print the key. */
 	void PrintKey(BYTE* key);
+
+	/**
+	* Method for checking whether the specified gate is an AND gate that has yet to be processed, useful primarily for checking dependencies
+	* \param gate the gate that has to be checked to decide whether to clear the AND gate queue
+	*/
+	bool CheckIfGateTrapsQueue(uint32_t gate, std::vector<GATE*> queue, e_gatetype queueType) const;
+
+	bool CheckIfQueueNeedsProcessing(const std::vector<GATE*>& queue, GATE* gate, e_gatetype queueType) const;
+
+	virtual size_t ciphertextPerAND() const = 0;
+	virtual size_t ciphertextPerXOR() const = 0;
 };
 
 #endif /* __YAOSHARING_H__ */

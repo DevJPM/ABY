@@ -27,12 +27,8 @@ static void PrintKey(__m128i data) {
 // width in number of tables
 // bufferOffset in bytes
 template<size_t width>
-void FixedKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset,uint32_t tableCounter, size_t numTablesInBatch,size_t bufferOffset)
+void FixedKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
 {
-	std::cout << "garbling AES-NI" << std::endl;
-
-	assert(bufferOffset + numTablesInBatch * 4 * 16 <= m_bufferSize);
-
 	const __m128i ONE = _mm_set_epi32(0, 0, 0, 1);
 	const __m128i TWO = _mm_set_epi32(0, 0, 0, 2);
 
@@ -45,6 +41,12 @@ void FixedKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset,uint32
 	__m128i data[4 * width];
 	__m128i keys[4 * width];
 	__m128i aes_keys[11];
+	__m128i rtable[width];
+	uint8_t* targetGateKey[width];
+	uint8_t* targetGateKeyR[width];
+	uint8_t lsbitANDrsbit[width];
+	uint8_t rpbit[width];
+	uint8_t* targetPiBit[width];
 
 	for (size_t i = 0; i < 11; ++i)
 	{
@@ -53,24 +55,49 @@ void FixedKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset,uint32
 
 	const __m128i R = _mm_loadu_si128((__m128i*)m_globalRandomOffset);
 
+	uint32_t currentOffset = simdStartOffset;
+	uint32_t currentGateIdx = queueStartIndex;
+	uint8_t* gtptr = tableBuffer + 16 * KEYS_PER_GATE_IN_TABLE * tableCounter;
+
 	for (size_t i = 0; i < numTablesInBatch; i += width)
 	{
-		// TODO: optimize this to detect and exploit simd gates
-		// saving vGate, parent base pointer and owning gate lookups
 		for (size_t w = 0; w < width; ++w)
 		{
-			const size_t index = w + i + baseOffset;
-			const auto currentGate = m_tableGateQueue[index];
-			const uint32_t leftParentId = currentGate.owningGate->ingates.inputs.twin.left;
-			const uint32_t rightParentId = currentGate.owningGate->ingates.inputs.twin.right;
+			const GATE* currentGate = m_tableGateQueue[currentGateIdx];
+			const uint32_t leftParentId = currentGate->ingates.inputs.twin.left;
+			const uint32_t rightParentId = currentGate->ingates.inputs.twin.right;
 			const GATE* leftParent = &m_vGates[leftParentId];
 			const GATE* rightParent = &m_vGates[rightParentId];
-			const uint32_t simdOffset = currentGate.simdPosition;
+			const uint8_t* leftParentKey = leftParent->gs.yinput.outKey[0] + 16 * currentOffset;
+			const uint8_t* rightParentKey = rightParent->gs.yinput.outKey[0] + 16 * currentOffset;
+			const uint8_t lpbit = leftParent->gs.yinput.pi[currentOffset];
+			rpbit[w] = rightParent->gs.yinput.pi[currentOffset];
 
-			keys[4 * w + 0] = _mm_loadu_si128((__m128i*)(leftParent->gs.yinput.outKey + 16 * simdOffset));
+			currentGate->gs.yinput.pi[currentOffset] = lpbit & rpbit[w];
+			targetPiBit[w] = currentGate->gs.yinput.pi + currentOffset;
+
+			keys[4 * w + 0] = _mm_loadu_si128((__m128i*)leftParentKey);
 			keys[4 * w + 1] = _mm_xor_si128(keys[4 * w + 0], R);
-			keys[4 * w + 2] = _mm_loadu_si128((__m128i*)(rightParent->gs.yinput.outKey + 16 * simdOffset));
+			keys[4 * w + 2] = _mm_loadu_si128((__m128i*)rightParentKey);
 			keys[4 * w + 3] = _mm_xor_si128(keys[4 * w + 2], R);
+
+			targetGateKey[w] = currentGate->gs.yinput.outKey[0] + 16 * currentOffset;
+			targetGateKeyR[w] = currentGate->gs.yinput.outKey[1] + 16 * currentOffset;
+
+			lsbitANDrsbit[w] = (leftParentKey[15] & 0x01) & (rightParentKey[15] & 0x01);
+
+			if (lpbit)
+				rtable[w] = keys[4 * w + 1];
+			else
+				rtable[w] = keys[4 * w + 0];
+
+			currentOffset++;
+
+			if (currentOffset >= currentGate->nvals)
+			{
+				currentGateIdx++;
+				currentOffset = 0;
+			}
 		}
 
 		for (size_t w = 0; w < width; ++w)
@@ -118,31 +145,62 @@ void FixedKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset,uint32
 		}
 			
 
-		for (size_t w = 0; w < 4 * width; ++w)
-			_mm_store_si128((__m128i*)(m_aesBuffer + bufferOffset + (i * 4 + w) * 16), data[w]);
+		for (size_t w = 0; w < width; ++w)
+		{
+			__m128i ltable = _mm_xor_si128(data[4 * w + 0], data[4 * w + 1]);
+			if (rpbit[w])
+				ltable = _mm_xor_si128(ltable, R);
+			_mm_storeu_si128((__m128i*)gtptr, ltable);
+			gtptr += 16;
+			const __m128i rXor = _mm_xor_si128(data[4 * w + 2], data[4 * w + 3]);
+			rtable[w] = _mm_xor_si128(rtable[w], rXor);
+			_mm_storeu_si128((__m128i*)gtptr, rtable[w]);
+			gtptr += 16;
+
+			__m128i outKey;
+			if (rpbit[w])
+				outKey = _mm_xor_si128(data[4 * w + 0], data[4 * w + 3]);
+			else
+				outKey = _mm_xor_si128(data[4 * w + 0], data[4 * w + 2]);
+			if (lsbitANDrsbit[w])
+				outKey = _mm_xor_si128(outKey, R);
+			if (rpbit[w])
+				outKey = _mm_xor_si128(outKey, rXor);
+			
+			uint8_t rBit = _mm_extract_epi8(R, 15) & 0x01;
+			uint8_t outWireBit = _mm_extract_epi8(outKey, 15) & 0x01;
+			if (outWireBit)
+			{
+				outKey = _mm_xor_si128(outKey, R);
+				*targetPiBit[w] ^= rBit;
+			}
+				
+			_mm_storeu_si128((__m128i*)targetGateKey[w], outKey);
+			_mm_storeu_si128((__m128i*)targetGateKeyR[w], _mm_xor_si128(outKey,R));
+		}
 	}
 }
 
-void FixedKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset, uint32_t tableCounter, size_t numTablesInBatch)
+void FixedKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
 {
-	const size_t leftovers = numTablesInBatch % mainGarblingWidthNI;
-	const size_t mainBulkSize = numTablesInBatch - leftovers;
+	ProcessQueue(m_tableGateQueue, mainGarblingWidthNI, numTablesInBatch, tableCounter, tableBuffer);
+}
 
-	fillAESBufferAND<mainGarblingWidthNI>(baseOffset, tableCounter, mainBulkSize,0);
+void FixedKeyLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+{
+	computeOutKeysAndTable<mainGarblingWidthNI>(wireCounter, numWiresInBatch, 0, 0, tableBuffer);
+}
 
-	if (leftovers > 0)
-	{
-		fillAESBufferAND<1>(baseOffset + mainBulkSize, tableCounter + mainBulkSize, leftovers, mainBulkSize * 16*4); // 16 bytes per ciphertext, 4 per table
-	}
+void FixedKeyLTGarblingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeOutKeysAndTable<1>(wireCounter, numWiresInBatch, queueStartIndex, simdStartOffset, tableBuffer);
 }
 
 // width in number of tables
 // bufferOffset in bytes
 template<size_t width>
-void InputKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset, uint32_t tableCounter, size_t numTablesInBatch, size_t bufferOffset)
+void InputKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
 {
-	assert(bufferOffset + numTablesInBatch * 4 * 16 <= m_bufferSize);
-
 	const __m128i ONE = _mm_set_epi32(0, 0, 0, 1);
 	const __m128i TWO = _mm_set_epi32(0, 0, 0, 2);
 
@@ -155,7 +213,18 @@ void InputKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset, uint3
 	__m128i data[4 * width];
 	__m128i parentKeys[4 * width];
 
+	__m128i rtable[width];
+	uint8_t* targetGateKey[width];
+	uint8_t* targetGateKeyR[width];
+	uint8_t lsbitANDrsbit[width];
+	uint8_t rpbit[width];
+	uint8_t* targetPiBit[width];
+
 	const __m128i R = _mm_loadu_si128((__m128i*)m_globalRandomOffset);
+
+	uint32_t currentOffset = simdStartOffset;
+	uint32_t currentGateIdx = queueStartIndex;
+	uint8_t* gtptr = tableBuffer + 16 * KEYS_PER_GATE_IN_TABLE * tableCounter;
 
 	for (size_t i = 0; i < numTablesInBatch; i += width)
 	{
@@ -163,18 +232,41 @@ void InputKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset, uint3
 		// saving vGate, parent base pointer and owning gate lookups
 		for (size_t w = 0; w < width; ++w)
 		{
-			const size_t index = w + i + baseOffset;
-			const auto currentGate = m_tableGateQueue[index];
-			const uint32_t leftParentId = currentGate.owningGate->ingates.inputs.twin.left;
-			const uint32_t rightParentId = currentGate.owningGate->ingates.inputs.twin.right;
+			const GATE* currentGate = m_tableGateQueue[currentGateIdx];
+			const uint32_t leftParentId = currentGate->ingates.inputs.twin.left;
+			const uint32_t rightParentId = currentGate->ingates.inputs.twin.right;
 			const GATE* leftParent = &m_vGates[leftParentId];
 			const GATE* rightParent = &m_vGates[rightParentId];
-			const uint32_t simdOffset = currentGate.simdPosition;
+			const uint8_t* leftParentKey = leftParent->gs.yinput.outKey[0] + 16 * currentOffset;
+			const uint8_t* rightParentKey = rightParent->gs.yinput.outKey[0] + 16 * currentOffset;
+			const uint8_t lpbit = leftParent->gs.yinput.pi[currentOffset];
+			rpbit[w] = rightParent->gs.yinput.pi[currentOffset];
 
-			parentKeys[4 * w + 0] = _mm_loadu_si128((__m128i*)(leftParent->gs.yinput.outKey + 16 * simdOffset));
+			currentGate->gs.yinput.pi[currentOffset] = lpbit & rpbit[w];
+			targetPiBit[w] = currentGate->gs.yinput.pi + currentOffset;
+
+			parentKeys[4 * w + 0] = _mm_loadu_si128((__m128i*)leftParentKey);
 			parentKeys[4 * w + 1] = _mm_xor_si128(parentKeys[4 * w + 0], R);
-			parentKeys[4 * w + 2] = _mm_loadu_si128((__m128i*)(rightParent->gs.yinput.outKey + 16 * simdOffset));
+			parentKeys[4 * w + 2] = _mm_loadu_si128((__m128i*)rightParentKey);
 			parentKeys[4 * w + 3] = _mm_xor_si128(parentKeys[4 * w + 2], R);
+
+			targetGateKey[w] = currentGate->gs.yinput.outKey[0] + 16 * currentOffset;
+			targetGateKeyR[w] = currentGate->gs.yinput.outKey[1] + 16 * currentOffset;
+
+			lsbitANDrsbit[w] = (leftParentKey[15] & 0x01) & (rightParentKey[15] & 0x01);
+
+			if (lpbit)
+				rtable[w] = parentKeys[4 * w + 1];
+			else
+				rtable[w] = parentKeys[4 * w + 0];
+
+			currentOffset++;
+
+			if (currentOffset >= currentGate->nvals)
+			{
+				currentGateIdx++;
+				currentOffset = 0;
+			}
 		}
 
 		for (size_t w = 0; w < width; ++w)
@@ -253,21 +345,52 @@ void InputKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset, uint3
 		}
 
 		for (size_t w = 0; w < 4 * width; ++w)
-			_mm_store_si128((__m128i*)(m_aesBuffer + bufferOffset + (i * 4 + w) * 16), data[w]);
+		{
+			__m128i ltable = _mm_xor_si128(data[4 * w + 0], data[4 * w + 1]);
+			if (rpbit[w])
+				ltable = _mm_xor_si128(ltable, R);
+			_mm_storeu_si128((__m128i*)gtptr, ltable);
+			gtptr += 16;
+			const __m128i rXor = _mm_xor_si128(data[4 * w + 2], data[4 * w + 3]);
+			rtable[w] = _mm_xor_si128(rtable[w], rXor);
+			_mm_storeu_si128((__m128i*)gtptr, rtable[w]);
+			gtptr += 16;
+
+			__m128i outKey;
+			if (rpbit[w])
+				outKey = _mm_xor_si128(data[4 * w + 0], data[4 * w + 3]);
+			else
+				outKey = _mm_xor_si128(data[4 * w + 0], data[4 * w + 2]);
+			if (lsbitANDrsbit[w])
+				outKey = _mm_xor_si128(outKey, R);
+			if (rpbit[w])
+				outKey = _mm_xor_si128(outKey, rXor);
+			uint8_t rBit = _mm_extract_epi8(R, 15) & 0x01;
+			uint8_t outWireBit = _mm_extract_epi8(outKey, 15) & 0x01;
+			if (outWireBit) {
+				outKey = _mm_xor_si128(outKey, R);
+				*targetPiBit[w] ^= rBit;
+			}
+				
+			_mm_storeu_si128((__m128i*)targetGateKey[w], outKey);
+			_mm_storeu_si128((__m128i*)targetGateKeyR[w], _mm_xor_si128(outKey,R));
+		}
 	}
 }
 
-void InputKeyLTGarblingAesniProcessor::fillAESBufferAND(size_t baseOffset, uint32_t tableCounter, size_t numTablesInBatch)
+void InputKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
 {
-	const size_t leftovers = numTablesInBatch % mainGarblingWidthNI;
-	const size_t mainBulkSize = numTablesInBatch - leftovers;
+	ProcessQueue(m_tableGateQueue, mainGarblingWidthNI, numTablesInBatch, tableCounter, tableBuffer);
+}
 
-	fillAESBufferAND<mainGarblingWidthNI>(baseOffset, tableCounter, mainBulkSize, 0);
+void InputKeyLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+{
+	computeOutKeysAndTable<mainGarblingWidthNI>(wireCounter, numWiresInBatch, 0, 0, tableBuffer);
+}
 
-	if (leftovers > 0)
-	{
-		fillAESBufferAND<1>(baseOffset + mainBulkSize, tableCounter + mainBulkSize, leftovers, mainBulkSize * 16 * 4); // 16 bytes per ciphertext, 4 per table
-	}
+void InputKeyLTGarblingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeOutKeysAndTable<1>(wireCounter, numWiresInBatch, queueStartIndex, simdStartOffset, tableBuffer);
 }
 
 void FixedKeyProvider::expandAESKey()
@@ -326,7 +449,7 @@ void FixedKeyProvider::expandAESKey()
 
 
 template<size_t width>
-inline void FixedKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch)
+inline void FixedKeyLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables)
 {
 	const __m128i ONE = _mm_set_epi32(0, 0, 0, 1);
 	const __m128i TWO = _mm_set_epi32(0, 0, 0, 2);
@@ -339,8 +462,10 @@ inline void FixedKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 
 	__m128i data[2 * width];
 	__m128i keys[2 * width];
+	__m128i finalMask[width];
 	uint8_t* targetGateKey[width];
 	__m128i aes_keys[11];
+	const uint8_t* gtptr = receivedTables + tableCounter * KEYS_PER_GATE_IN_TABLE * 16;
 
 	for (size_t i = 0; i < 11; ++i)
 	{
@@ -359,11 +484,27 @@ inline void FixedKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 			const uint32_t rightParentId = currentGate->ingates.inputs.twin.right;
 			const GATE* leftParent = &m_vGates[leftParentId];
 			const GATE* rightParent = &m_vGates[rightParentId];
+			const uint8_t* leftParentKey = leftParent->gs.yval + 16 * currentOffset;
+			const uint8_t* rightParentKey = rightParent->gs.yval + 16 * currentOffset;
 
-			keys[2 * w + 0] = _mm_loadu_si128((__m128i*)(leftParent->gs.yval + 16 * currentOffset));
-			keys[2 * w + 1] = _mm_loadu_si128((__m128i*)(rightParent->gs.yval + 16 * currentOffset));
+			keys[2 * w + 0] = _mm_loadu_si128((__m128i*)leftParentKey);
+			keys[2 * w + 1] = _mm_loadu_si128((__m128i*)rightParentKey);
 
 			targetGateKey[w] = currentGate->gs.yval + 16 * currentOffset;
+
+			finalMask[w] = _mm_setzero_si128();
+			if (leftParentKey[15] & 0x01)
+			{
+				finalMask[w] = _mm_loadu_si128((__m128i*)gtptr);
+			}
+			gtptr += 16;
+			if (rightParentKey[15] & 0x01)
+			{
+				__m128i temp = _mm_loadu_si128((__m128i*)gtptr);
+				finalMask[w] = _mm_xor_si128(finalMask[w], temp);
+				finalMask[w] = _mm_xor_si128(finalMask[w],keys[2 * w + 0]);
+			}
+			gtptr += 16;
 
 			currentOffset++;
 
@@ -420,6 +561,7 @@ inline void FixedKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 		for (size_t w = 0; w < width; ++w)
 		{
 			__m128i temp = _mm_xor_si128(data[2 * w + 0], data[2 * w + 1]);
+			temp = _mm_xor_si128(temp, finalMask[w]);
 			_mm_storeu_si128((__m128i*)(targetGateKey[w]), temp);
 		}	
 	}
@@ -427,7 +569,7 @@ inline void FixedKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 
 
 template<size_t width>
-inline void InputKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch)
+inline void InputKeyLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables)
 {
 	const __m128i ONE = _mm_set_epi32(0, 0, 0, 1);
 	const __m128i TWO = _mm_set_epi32(0, 0, 0, 2);
@@ -440,7 +582,9 @@ inline void InputKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 
 	__m128i data[2 * width];
 	__m128i parentKeys[2 * width];
+	__m128i finalMask[width];
 	uint8_t* targetGateKey[width];
+	const uint8_t* gtptr = receivedTables + tableCounter * KEYS_PER_GATE_IN_TABLE * 16;
 
 
 	size_t currentGateIdx = queueStartIndex;
@@ -455,11 +599,27 @@ inline void InputKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 			const uint32_t rightParentId = currentGate->ingates.inputs.twin.right;
 			const GATE* leftParent = &m_vGates[leftParentId];
 			const GATE* rightParent = &m_vGates[rightParentId];
+			const uint8_t* leftParentKey = leftParent->gs.yval + 16 * currentOffset;
+			const uint8_t* rightParentKey = rightParent->gs.yval + 16 * currentOffset;
 
-			parentKeys[2 * w + 0] = _mm_loadu_si128((__m128i*)(leftParent->gs.yval + 16 * currentOffset));
-			parentKeys[2 * w + 1] = _mm_loadu_si128((__m128i*)(rightParent->gs.yval + 16 * currentOffset));
+			parentKeys[2 * w + 0] = _mm_loadu_si128((__m128i*)leftParentKey);
+			parentKeys[2 * w + 1] = _mm_loadu_si128((__m128i*)rightParentKey);
 
 			targetGateKey[w] = currentGate->gs.yval + 16 * currentOffset;
+
+			finalMask[w] = _mm_setzero_si128();
+			if (leftParentKey[15] & 0x01)
+			{
+				finalMask[w] = _mm_loadu_si128((__m128i*)gtptr);
+			}
+			gtptr += 16;
+			if (rightParentKey[15] & 0x01)
+			{
+				__m128i temp = _mm_loadu_si128((__m128i*)gtptr);
+				finalMask[w] = _mm_xor_si128(finalMask[w], temp);
+				finalMask[w] = _mm_xor_si128(finalMask[w], parentKeys[2 * w + 0]);
+			}
+			gtptr += 16;
 
 			currentOffset++;
 
@@ -547,62 +707,40 @@ inline void InputKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t ta
 		for (size_t w = 0; w < width; ++w)
 		{
 			__m128i temp = _mm_xor_si128(data[2 * w + 0], data[2 * w + 1]);
+			temp = _mm_xor_si128(temp, finalMask[w]);
 			_mm_storeu_si128((__m128i*)(targetGateKey[w]), temp);
 		}
 	}
 }
 
-
-void FixedKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t tableCounter, size_t numTablesInBatch)
+void FixedKeyLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	if (m_gateQueue.size() == 0)
-		return;
+	ProcessQueue(m_gateQueue, mainEvaluatingWidthNI, numTablesInBatch, tableCounter, receivedTables);
+}
 
-	const size_t leftovers = numTablesInBatch % mainEvaluatingWidthNI;
-	const size_t mainBulkSize = numTablesInBatch - leftovers;
+void FixedKeyLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainEvaluatingWidthNI>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+}
 
-	computeAESPreOutKeys<mainEvaluatingWidthNI>(tableCounter,0,0, mainBulkSize);
+void FixedKeyLTEvaluatingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<1>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
+}
 
-	size_t numTablesLeft = 0;
-	int64_t ridx;
+void InputKeyLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
+{
+	ProcessQueue(m_gateQueue, mainEvaluatingWidthNI, numTablesInBatch, tableCounter, receivedTables);
+}
 
-	for (ridx = m_gateQueue.size()-1; ridx >= 0; --ridx)
-	{
-		numTablesLeft += m_gateQueue[ridx]->nvals;
-		if (numTablesLeft >= leftovers)
-			break;
-	}
+void InputKeyLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainEvaluatingWidthNI>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+}
 
-	if (leftovers > 0)
-	{
-		computeAESPreOutKeys<1>(tableCounter + mainBulkSize, ridx, numTablesLeft - leftovers, leftovers);
-	}
+void InputKeyLTEvaluatingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<1>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
 
-
-void InputKeyLTEvaluatingAesniProcessor::computeAESPreOutKeys(uint32_t tableCounter, size_t numTablesInBatch)
-{
-	if (m_gateQueue.size() == 0)
-		return;
-
-	const size_t leftovers = numTablesInBatch % mainEvaluatingWidthNI;
-	const size_t mainBulkSize = numTablesInBatch - leftovers;
-
-	computeAESPreOutKeys<mainEvaluatingWidthNI>(tableCounter, 0, 0, mainBulkSize);
-
-	size_t numTablesLeft = 0;
-	int64_t ridx;
-
-	for (ridx = m_gateQueue.size() - 1; ridx >= 0; --ridx)
-	{
-		numTablesLeft += m_gateQueue[ridx]->nvals;
-		if (numTablesLeft >= leftovers)
-			break;
-	}
-
-	if (leftovers > 0)
-	{
-		computeAESPreOutKeys<1>(tableCounter + mainBulkSize, ridx, numTablesLeft - leftovers, leftovers);
-	}
-}

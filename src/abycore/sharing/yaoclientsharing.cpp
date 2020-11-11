@@ -18,11 +18,6 @@
 #include "yaoclientsharing.h"
 #include "../aby/abysetup.h"
 #include <cstdlib>
-#include "aes_processors/aesni_halfgate_processors.h"
-#include "aes_processors/vaes_halfgate_processors.h"
-#include "../cpu_features/include/cpuinfo_x86.h"
-
-static const cpu_features::X86Features CPU_FEATURES = cpu_features::GetX86Info().features;
 
 void YaoClientSharing::InitClient() {
 
@@ -37,24 +32,6 @@ void YaoClientSharing::InitClient() {
 	m_nClientOUTBitCtr = 0;
 
 	m_nKeyInputRcvIdx = 0;
-
-	if (m_nSecParamBytes != 16)
-	{
-		std::cerr << "unsupported security parameter." << std::endl;
-		assert(false);
-	}
-	else
-	{
-		if (CPU_FEATURES.vaes && CPU_FEATURES.avx512f)
-			m_aesProcessor = std::make_unique<FixedKeyLTEvaluatingVaesProcessor>(m_vCurrentANDGates, m_vGates);
-		else if(CPU_FEATURES.aes && CPU_FEATURES.ssse3)
-			m_aesProcessor = std::make_unique<FixedKeyLTEvaluatingAesniProcessor>(m_vCurrentANDGates, m_vGates);
-		else
-		{
-			std::cerr << "unsupported host CPU." << std::endl;
-			assert(false);
-		}	
-	}
 
 	m_vClientKeyRcvBuf.resize(2);
 
@@ -87,12 +64,13 @@ void YaoClientSharing::InitNewLayer() {
 /* Send a new task for pre-computing the OTs in the setup phase */
 void YaoClientSharing::PrepareSetupPhase(ABYSetup* setup) {
 	BYTE* buf;
-	uint64_t gt_size;
+	uint64_t gt_size, gtxor_size;
 	uint64_t univ_size;
 	m_nANDGates = m_cBoolCircuit->GetNumANDGates();
 	m_nUNIVGates = m_cBoolCircuit->GetNumUNIVGates();
 
-	gt_size = ((uint64_t) m_nANDGates) * KEYS_PER_GATE_IN_TABLE * m_nSecParamBytes;
+	gt_size = ((uint64_t) m_nANDGates) * ciphertextPerAND() * m_nSecParamBytes;
+	gtxor_size = ((uint64_t)m_nXORGates) * ciphertextPerXOR() * m_nSecParamBytes;
 	univ_size = ((uint64_t) m_nUNIVGates) * KEYS_PER_UNIV_GATE_IN_TABLE * m_nSecParamBytes;
 
 	if (m_cBoolCircuit->GetMaxDepth() == 0)
@@ -105,7 +83,11 @@ void YaoClientSharing::PrepareSetupPhase(ABYSetup* setup) {
 	m_nConversionInputBits = m_cBoolCircuit->GetNumB2YGates() + m_cBoolCircuit->GetNumA2YGates() + m_cBoolCircuit->GetNumYSwitchGates();
 
 	buf = (BYTE*) malloc(gt_size);
-	m_vGarbledCircuit.AttachBuf(buf, gt_size);
+	m_vAndGateTable.AttachBuf(buf, gt_size);
+
+	buf = (BYTE*)malloc(gtxor_size);
+	m_vXorGateTable.AttachBuf(buf, gtxor_size);
+	m_nXorGateTableCtr = 0;
 
 	m_vUniversalGateTable.Create(0);
 	buf = (BYTE*) malloc(univ_size);
@@ -153,8 +135,10 @@ void YaoClientSharing::PrepareOnlinePhase() {
 }
 
 void YaoClientSharing::ReceiveGarbledCircuitAndOutputShares(ABYSetup* setup) {
-	if (m_nANDGates > 0)
-		setup->AddReceiveTask(m_vGarbledCircuit.GetArr(), ((uint64_t) m_nANDGates) * m_nSecParamBytes * KEYS_PER_GATE_IN_TABLE);
+	if (m_vAndGateTable.GetSize() > 0)
+		setup->AddReceiveTask(m_vAndGateTable.GetArr(), ((uint64_t) m_nANDGates) * m_nSecParamBytes * ciphertextPerAND());
+	if (m_vXorGateTable.GetSize() > 0)
+		setup->AddReceiveTask(m_vXorGateTable.GetArr(), ((uint64_t)m_nXORGates) * m_nSecParamBytes * ciphertextPerXOR());
 	if (m_nUNIVGates > 0)
 		setup->AddReceiveTask(m_vUniversalGateTable.GetArr(), ((uint64_t) m_nUNIVGates) * m_nSecParamBytes * KEYS_PER_UNIV_GATE_IN_TABLE);
 	if (m_cBoolCircuit->GetNumOutputBitsForParty(CLIENT) > 0)
@@ -166,13 +150,13 @@ void YaoClientSharing::FinishSetupPhase(ABYSetup* setup) {
 	//wait for transmission end of GC
 	setup->WaitForTransmissionEnd();
 	/*std::cout << "Garbled Table Cl: " << std::endl;
-	m_vGarbledCircuit.PrintHex(0, ((uint64_t) m_nANDGates) * m_nSecParamBytes * KEYS_PER_GATE_IN_TABLE);
+	m_vAndGateTable.PrintHex(0, ((uint64_t) m_nANDGates) * m_nSecParamBytes * KEYS_PER_GATE_IN_TABLE);
 
 	std::cout << "Outshares C: " << std::endl;
 	m_vOutputShareRcvBuf.PrintHex(ceil_divide(m_cBoolCircuit->GetNumOutputBitsForParty(CLIENT), 8));*/
 #ifdef DEBUGYAOCLIENT
 	std::cout << "Received Garbled Circuit: ";
-	m_vGarbledCircuit.PrintHex();
+	m_vAndGateTable.PrintHex();
 	std::cout << "Received my output shares: ";
 	m_vOutputShareRcvBuf.Print(0, m_cBoolCircuit->GetNumOutputBitsForParty(CLIENT));
 
@@ -185,47 +169,44 @@ void YaoClientSharing::FinishSetupPhase(ABYSetup* setup) {
 #endif
 }
 void YaoClientSharing::EvaluateLocalOperations(uint32_t depth) {
-	assert(m_vCurrentANDGates.size() == 0);
-	size_t queuedTables = 0;
+	assert(m_andQueue.size() == 0);
+	assert(m_xorQueue.size() == 0);
+	size_t queuedANDTables = 0;	
+	size_t queuedXORTables = 0;
+	
 	std::deque<uint32_t> localops = m_cBoolCircuit->GetLocalQueueOnLvl(depth);
 
 	//std::cout << "In total I have " <<  localops.size() << " local operations to evaluate on this level " << std::endl;
 	for (uint32_t i = 0; i < localops.size(); i++) {
 		GATE* gate = &(m_vGates[localops[i]]);
 
-		bool needToProcessANDGates = false;
-		const uint32_t ningates = gate->ingates.ningates;
-		if (ningates == 1)
+		if (CheckIfQueueNeedsProcessing(m_andQueue,gate,G_NON_LIN))
 		{
-			uint32_t parentID = gate->ingates.inputs.parent;
-			if (parentID < m_vGates.size())
-				needToProcessANDGates = CheckIfGateTrapsANDGates(gate->ingates.inputs.parent);
-			else // apparently conversion gates like to use the pointer with 1 input!?
-				needToProcessANDGates = CheckIfGateTrapsANDGates(gate->ingates.inputs.parents[0]);
-		}
-		else if (ningates == 2)
-		{
-			needToProcessANDGates = CheckIfGateTrapsANDGates(gate->ingates.inputs.twin.left) || CheckIfGateTrapsANDGates(gate->ingates.inputs.twin.right);
-		}
-		else
-		{
-			needToProcessANDGates = std::any_of(gate->ingates.inputs.parents, gate->ingates.inputs.parents + gate->ingates.ningates, [this](uint32_t x) {return CheckIfGateTrapsANDGates(x); });
+			evaluateDeferredANDGates(queuedANDTables);
+			m_andQueue.clear();
+			queuedANDTables = 0;
 		}
 
-		if (needToProcessANDGates)
+		if (CheckIfQueueNeedsProcessing(m_xorQueue, gate, G_LIN))
 		{
-			//std::cout << "trapped with " << m_vCurrentANDGates.size()<< " queued." << std::endl;
-			EvaluateDeferredANDGates(queuedTables);
-			queuedTables = 0;
+			evaluateDeferredXORGates(queuedXORTables);
+			m_xorQueue.clear();
+			queuedXORTables = 0;
 		}
 
 		//std::cout << "Evaluating gate " << localops[i] << " with context = " << gate->context << std::endl;
 		if (gate->type == G_LIN) {
-			EvaluateXORGate(gate);
+			if (!evaluateXORGate(gate))
+			{
+				m_xorQueue.push_back(gate);
+				queuedXORTables += gate->nvals;
+			}
 		} else if (gate->type == G_NON_LIN) {
-			m_vCurrentANDGates.push_back(gate);
-			queuedTables += gate->nvals;
-			//EvaluateANDGate(gate);
+			if (!evaluateANDGate(gate))
+			{
+				m_andQueue.push_back(gate);
+				queuedANDTables += gate->nvals;
+			}
 		} else if (gate->type == G_CONSTANT) {
 			InstantiateGate(gate);
 			memset(gate->gs.yval, 0, m_nSecParamBytes * gate->nvals);
@@ -234,6 +215,7 @@ void YaoClientSharing::EvaluateLocalOperations(uint32_t depth) {
 			EvaluateSIMDGate(localops[i]);
 		} else if (gate->type == G_INV) {
 			//only copy values, SERVER did the inversion
+			// This holds true even w/o free XOR
 			uint32_t parentid = gate->ingates.inputs.parent; // gate->gs.invinput;
 			InstantiateGate(gate);
 			memcpy(gate->gs.yval, m_vGates[parentid].gs.yval, m_nSecParamBytes * gate->nvals);
@@ -255,24 +237,17 @@ void YaoClientSharing::EvaluateLocalOperations(uint32_t depth) {
 			EvaluateAssertGate(localops[i], C_BOOLEAN);
 		} else if (gate->type == G_UNIV) {
 			//cout << "Client: Evaluating Universal Circuit gate" << std::endl;
-			EvaluateUNIVGate(gate);
+			evaluateUNIVGate(gate);
 		} else {
 			std::cerr << "YaoClientSharing: Non-interactive operation not recognized: " <<
 					(uint32_t) gate->type << "(" << get_gate_type_name(gate->type) << ")" << std::endl;
 			std::exit(EXIT_FAILURE);
 		}
 	}
-	EvaluateDeferredANDGates(queuedTables);
-}
-
-bool YaoClientSharing::CheckIfGateTrapsANDGates(uint32_t gate) const
-{
-	GATE* ptr = &m_vGates[gate];
-	if (ptr->type != G_NON_LIN)
-		return false;
-	// TODO: If this becomes a performance issue, use some sort of vector-stored set of the gateids
-	// and then binary search + sort? or use a proper std::set
-	return std::any_of(m_vCurrentANDGates.begin(), m_vCurrentANDGates.end(), [ptr](const GATE* g) {return g == ptr; });
+	evaluateDeferredANDGates(queuedANDTables);
+	m_andQueue.clear();
+	evaluateDeferredXORGates(queuedXORTables);
+	m_xorQueue.clear();
 }
 
 void YaoClientSharing::EvaluateInteractiveOperations(uint32_t depth) {
@@ -321,35 +296,6 @@ void YaoClientSharing::EvaluateInteractiveOperations(uint32_t depth) {
 	}
 }
 
-void YaoClientSharing::EvaluateXORGate(GATE* gate) {
-	uint32_t nvals = gate->nvals;
-	uint32_t idleft = gate->ingates.inputs.twin.left; //gate->gs.ginput.left;
-	uint32_t idright = gate->ingates.inputs.twin.right; //gate->gs.ginput.right;
-
-	InstantiateGate(gate);
-	//TODO: optimize for uint64_t pointers, there might be some problems here, code is untested
-	/*for(uint32_t i = 0; i < m_nSecParamBytes * nvals; i++) {
-	 gate->gs.yval[i] = m_vGates[idleft].gs.yval[i] ^ m_vGates[idright].gs.yval[i];
-	 }*/
-	//std::cout << "doing " << m_nSecParamIters << "iters on " << nvals << " vals " << std::endl;
-	for (uint32_t i = 0; i < m_nSecParamIters * nvals; i++) {
-		((UGATE_T*) gate->gs.yval)[i] = ((UGATE_T*) m_vGates[idleft].gs.yval)[i] ^ ((UGATE_T*) m_vGates[idright].gs.yval)[i];
-	}
-	//std::cout << "Keyval (" << 0 << ")= " << (gate->gs.yval[m_nSecParamBytes-1] & 0x01)  << std::endl;
-	//std::cout << (gate->gs.yval[m_nSecParamBytes-1] & 0x01);
-#ifdef DEBUGYAOCLIENT
-	PrintKey(gate->gs.yval);
-	std::cout << " = ";
-	PrintKey(m_vGates[idleft].gs.yval);
-	std::cout << " (" << idleft << ") ^ ";
-	PrintKey(m_vGates[idright].gs.yval);
-	std::cout << " (" << idright << ")" << std::endl;
-#endif
-
-	UsedGate(idleft);
-	UsedGate(idright);
-}
-
 void YaoClientSharing::EvaluateANDGate(GATE* gate) {
 	uint32_t idleft = gate->ingates.inputs.twin.left; //gate->gs.ginput.left;
 	uint32_t idright = gate->ingates.inputs.twin.right; //gate->gs.ginput.right;
@@ -360,7 +306,7 @@ void YaoClientSharing::EvaluateANDGate(GATE* gate) {
 	InstantiateGate(gate);
 	for (uint32_t g = 0; g < gate->nvals; g++) {
 		EvaluateGarbledTableJIT(gate, g, gleft, gright);
-		m_nGarbledTableCtr++;
+		m_nAndGateTableCtr++;
 
 		//Pipelined receive - TODO: outsource in own thread
 		/*if(andctr >= GARBLED_TABLE_WINDOW) {
@@ -375,102 +321,19 @@ void YaoClientSharing::EvaluateANDGate(GATE* gate) {
 	UsedGate(idright);
 }
 
-void YaoClientSharing::EvaluateDeferredANDGates(size_t numTablesInQueue)
-{
-	// the buffers are needed for the batch processing
-	for (auto* currentGate : m_vCurrentANDGates)
-		InstantiateGate(currentGate);
-
-	// we call into another class here as this allows us to exploit dynamic dispatch
-	// to switch between AES256, AES128, AES-NI and VAES as needed based on a ctor parameter
-	// This essentially does the wire encrypting previously done just-in-time
-	// TODO: If time, do some fancy software pipelining tricks and also do the actual table generation?
-	m_aesProcessor->computeAESPreOutKeys(m_nGarbledTableCtr, numTablesInQueue);
-
-	for (auto* currentGate : m_vCurrentANDGates)
-	{
-		uint32_t idleft = currentGate->ingates.inputs.twin.left; //gate->gs.ginput.left;
-		uint32_t idright = currentGate->ingates.inputs.twin.right; //gate->gs.ginput.right;
-		GATE* gleft = &(m_vGates[idleft]);
-		GATE* gright = &(m_vGates[idright]);
-
-		for (uint32_t i = 0; i < currentGate->nvals; ++i)
-		{
-			EvaluateGarbledTablePrepared(currentGate, i, gleft, gright);
-			m_nGarbledTableCtr++;
-		}
-
-		UsedGate(currentGate->ingates.inputs.twin.left);
-		UsedGate(currentGate->ingates.inputs.twin.right);
-	}
-
-	m_vCurrentANDGates.clear();
-}
-
 BOOL YaoClientSharing::EvaluateGarbledTableJIT(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright)
 {
 	uint8_t* okey = gate->gs.yval + pos * m_nSecParamBytes;
 	uint8_t* lkey = gleft->gs.yval + pos * m_nSecParamBytes;
 	uint8_t* rkey = gright->gs.yval + pos * m_nSecParamBytes;
 
-	EncryptWire(m_vTmpEncBuf[0], lkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr);
-	EncryptWire(m_vTmpEncBuf[1], rkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr+1);
+	EncryptWire(m_vTmpEncBuf[0], lkey, KEYS_PER_GATE_IN_TABLE*m_nAndGateTableCtr);
+	EncryptWire(m_vTmpEncBuf[1], rkey, KEYS_PER_GATE_IN_TABLE*m_nAndGateTableCtr+1);
 
 	m_pKeyOps->XOR(okey, m_vTmpEncBuf[0], m_vTmpEncBuf[1]);//gc_xor(okey, encbuf[0], encbuf[1]);
 
-	return EvaluateGarbledTablePrepared(gate, pos, gleft, gright);
-}
-
-BOOL YaoClientSharing::EvaluateGarbledTablePrepared(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright)
-{
-
-	uint8_t *lkey, *rkey, *okey, *gtptr;
-	uint8_t lpbit, rpbit;
-
-	okey = gate->gs.yval + pos * m_nSecParamBytes;
-	lkey = gleft->gs.yval + pos * m_nSecParamBytes;
-	rkey = gright->gs.yval + pos * m_nSecParamBytes;
-	gtptr = m_vGarbledCircuit.GetArr() + m_nSecParamBytes * KEYS_PER_GATE_IN_TABLE * m_nGarbledTableCtr;
-
-	lpbit = lkey[m_nSecParamBytes-1] & 0x01;
-	rpbit = rkey[m_nSecParamBytes-1] & 0x01;
-
-	assert(lpbit < 2 && rpbit < 2);
-
-	//EncryptWire(m_vTmpEncBuf[0], lkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr);
-	//EncryptWire(m_vTmpEncBuf[1], rkey, KEYS_PER_GATE_IN_TABLE*m_nGarbledTableCtr+1);
-
-	//m_pKeyOps->XOR(okey, m_vTmpEncBuf[0], m_vTmpEncBuf[1]);//gc_xor(okey, encbuf[0], encbuf[1]);
-
-	if(lpbit) {
-		m_pKeyOps->XOR(okey, okey, gtptr);//gc_xor(okey, okey, gtptr);
-	}
-	if(rpbit) {
-		m_pKeyOps->XOR(okey, okey, gtptr+m_nSecParamBytes);//gc_xor(okey, okey, gtptr+BYTES_SSP);
-		m_pKeyOps->XOR(okey, okey, lkey);//gc_xor(okey, okey, gtptr+BYTES_SSP);
-	}
-
-#ifdef DEBUGYAOCLIENT
-		std::cout << " using: ";
-		PrintKey(lkey);
-		std::cout << " (" << (uint32_t) lpbit << ") and : ";
-		PrintKey(rkey);
-		std::cout << " (" << (uint32_t) rpbit << ") to : ";
-		PrintKey(okey);
-		std::cout << " (" << (uint32_t) (okey[m_nSecParamBytes-1] & 0x01) << ")" << std::endl;
-		std::cout << "A: ";
-		PrintKey(m_vTmpEncBuf[0]);
-		std::cout << "; B: ";
-		PrintKey(m_vTmpEncBuf[1]);
-		std::cout << std::endl;
-		std::cout << "Table A: ";
-		PrintKey(gtptr);
-		std::cout << "; Table B: ";
-		PrintKey(gtptr+m_nSecParamBytes);
-		std::cout << std::endl;
-#endif
-
 	return true;
+	//return EvaluateGarbledTablePrepared(gate, pos, gleft, gright);
 }
 
 void YaoClientSharing::EvaluateUNIVGate(GATE* gate) {
@@ -942,8 +805,11 @@ void YaoClientSharing::Reset() {
 	m_nServerInputBits = 0;
 	m_vServerInputKeys.delCBitVector();
 
-	m_vGarbledCircuit.delCBitVector();
-	m_nGarbledTableCtr = 0;
+	m_vAndGateTable.delCBitVector();
+	m_nAndGateTableCtr = 0;
+
+	m_vXorGateTable.delCBitVector();
+	m_nXorGateTableCtr = 0;
 
 	m_vUniversalGateTable.delCBitVector();
 	m_nUniversalGateTableCtr = 0;

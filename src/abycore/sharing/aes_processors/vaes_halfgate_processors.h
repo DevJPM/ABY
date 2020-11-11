@@ -16,25 +16,24 @@ using std::uint8_t;
 class FixedKeyLTGarblingVaesProcessor : public AESProcessorHalfGateGarbling
 {
 public:
-	FixedKeyLTGarblingVaesProcessor(uint8_t* buffer, size_t bufferSize, const std::vector<YaoServerSharing::GarbledTableJob>& tableGateQueue, const std::vector<GATE>& vGates) :
+	FixedKeyLTGarblingVaesProcessor(const std::vector<GATE*>& tableGateQueue, const std::vector<GATE>& vGates) :
 		m_tableGateQueue(tableGateQueue),
-		m_vGates(vGates),
-		m_aesBuffer(buffer),
-		m_bufferSize(bufferSize)
+		m_vGates(vGates)
 	{
 	}
 	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r; }
-	virtual void fillAESBufferAND(size_t baseOffset, uint32_t tableCounter, size_t numTablesInBatch) override;
+	virtual void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
 private:
 	// only processes multiples of width
-	template<size_t width> void fillAESBufferAND(size_t baseOffset, uint32_t tableCounter, size_t numTablesInBatch, size_t bufferOffset);
+	template<size_t width> void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer);
 
 	FixedKeyProvider m_fixedKeyProvider;
-	const std::vector<YaoServerSharing::GarbledTableJob>& m_tableGateQueue;
+	const std::vector<GATE*>& m_tableGateQueue;
 	const std::vector<GATE>& m_vGates;
 	const uint8_t* m_globalRandomOffset;
-	uint8_t* m_aesBuffer;
-	const size_t m_bufferSize;
+
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer) override;
+	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
 class FixedKeyLTEvaluatingVaesProcessor : public AESProcessorHalfGateEvaluation
@@ -45,13 +44,16 @@ public:
 		m_vGates(vGates)
 	{
 	}
-	virtual void computeAESPreOutKeys(uint32_t tableCounter, size_t numTablesInBatch) override;
+	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables) override;
 private:
-	template<size_t width>  void computeAESPreOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch);
+	template<size_t width>  void computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables);
 
 	FixedKeyProvider m_fixedKeyProvider;
 	const std::vector<GATE*>& m_gateQueue;
 	const std::vector<GATE>& m_vGates;
+
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer) override;
+	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
 #endif

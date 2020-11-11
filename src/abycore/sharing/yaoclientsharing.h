@@ -39,7 +39,7 @@ public:
 	}
 	;
 	/** Destructor of the class.*/
-	~YaoClientSharing();
+	virtual ~YaoClientSharing();
 
 	//MEMBER FUNCTIONS FROM SUPER CLASS YAO SHARING
 	void Reset();
@@ -68,9 +68,22 @@ public:
 	;
 	//ENDS HERE..
 
+protected:
+	virtual void evaluateDeferredANDGates(size_t numWires) = 0;
+	virtual void evaluateDeferredXORGates(size_t numWires) = 0;
+
+	// these return true if they already fully processed the gate
+	// at hand which then does not need to be queued
+	virtual bool evaluateXORGate(GATE* gate) = 0;
+	virtual bool evaluateANDGate(GATE* gate) = 0;
+	virtual bool evaluateUNIVGate(GATE* gate) = 0;
+
+	const std::vector<GATE*>& getAndQueue() const { return m_andQueue; }
+	const std::vector<GATE*>& getXorQueue() const { return m_xorQueue; }
 private:
-	std::vector<GATE*> m_vCurrentANDGates; /**< Queue of AND gates that still need to be evaluated*/
-	std::unique_ptr<AESProcessorHalfGateEvaluation> m_aesProcessor; /**< Processor for the generation of the garbled table PRF calls in a more optimized way*/
+	// these queues are member variables because we want to avoid re-allocations
+	std::vector<GATE*> m_andQueue;
+	std::vector<GATE*> m_xorQueue;
 
 	CBitVector m_vROTMasks; /**< Masks_______________*/
 	uint32_t m_nChoiceBitCtr; /**< Choice bits counter.*/
@@ -206,12 +219,6 @@ private:
 	*                         and in particular includes each SIMD wire
 	*/
 	void EvaluateDeferredANDGates(size_t numTablesInBatch);
-
-	/**
-	* Method for checking whether the specified gate is an AND gate that has yet to be processed, useful primarily for checking dependencies
-	* \param gate the gate that has to be checked to decide whether to clear the AND gate queue
-	*/
-	bool CheckIfGateTrapsANDGates(uint32_t gate) const;
 };
 
 #endif /* __YAOCLIENTSHARING_H__ */

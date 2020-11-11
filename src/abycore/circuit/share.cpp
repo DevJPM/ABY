@@ -203,15 +203,17 @@ yao_fields* boolshare::get_internal_yao_keys() {
 
 	if(m_ccirc->GetRole() == SERVER) {
 		for(uint32_t i = 0; i < m_ngateids.size(); i++) {
-			out[i].outKey = (uint8_t*) malloc(key_bytes * nvals);
-			memcpy(out[i].outKey, m_ccirc->GetGateSpecificOutput(m_ngateids[i]).yinput.outKey, key_bytes * nvals);
+			out[i].outKey[0] = (uint8_t*) malloc(key_bytes * nvals);
+			out[i].outKey[1] = (uint8_t*)malloc(key_bytes * nvals);
+			memcpy(out[i].outKey[0], m_ccirc->GetGateSpecificOutput(m_ngateids[i]).yinput.outKey[0], key_bytes * nvals);
+			memcpy(out[i].outKey[1], m_ccirc->GetGateSpecificOutput(m_ngateids[i]).yinput.outKey[1], key_bytes * nvals);
 			out[i].pi = (uint8_t*) malloc(nvals);
 			memcpy(out[i].pi, m_ccirc->GetGateSpecificOutput(m_ngateids[i]).yinput.pi, nvals);
 		}
 	} else {
 		for(uint32_t i = 0; i < m_ngateids.size(); i++) {
-			out[i].outKey = (uint8_t*) malloc(key_bytes * nvals);
-			memcpy(out[i].outKey, m_ccirc->GetOutputGateValue(m_ngateids[i]), key_bytes * nvals);
+			out[i].outKey[0] = (uint8_t*) malloc(key_bytes * nvals);
+			memcpy(out[i].outKey[0], m_ccirc->GetOutputGateValue(m_ngateids[i]), key_bytes * nvals);
 			//Leave the pi value unallocated. The client does not know it. It could be simulated using the last bit of the key
 		}
 	}

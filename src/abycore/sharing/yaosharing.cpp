@@ -31,7 +31,7 @@ void YaoSharing::Init() {
 	m_bZeroBuf = (BYTE*) calloc(m_nSecParamBytes, sizeof(BYTE));
 	m_bTempKeyBuf = (BYTE*) malloc(sizeof(BYTE) * AES_BYTES);
 
-	m_nGarbledTableCtr = 0;
+	m_nAndGateTableCtr = 0;
 
 	m_bResKeyBuf = (BYTE*) malloc(sizeof(BYTE) * AES_BYTES);
 	m_kGarble = (AES_KEY_CTX*) malloc(sizeof(AES_KEY_CTX));
@@ -118,4 +118,35 @@ void YaoSharing::PrintKey(BYTE* key) {
 
 void YaoSharing::PrintPerformanceStatistics() {
 	std::cout <<  get_sharing_name(m_eContext) << ": ANDs: " << m_nANDGates << " ; Depth: " << GetMaxCommunicationRounds() << std::endl;
+}
+
+bool YaoSharing::CheckIfGateTrapsQueue(uint32_t gate, std::vector<GATE*> queue, e_gatetype queueType) const
+{
+	GATE* ptr = &m_vGates[gate];
+	if (ptr->type != queueType)
+		return false;
+	// TODO: If this becomes a performance issue, use some sort of vector-stored set of the gateids
+	// and then binary search + sort? or use a proper std::set
+	return std::any_of(queue.begin(), queue.end(), [ptr](const GATE* g) {return g == ptr; });
+}
+
+bool YaoSharing::CheckIfQueueNeedsProcessing(const std::vector<GATE*>& queue, GATE* gate, e_gatetype queueType) const
+{
+	const uint32_t ningates = gate->ingates.ningates;
+	if (ningates == 1)
+	{
+		uint32_t parentID = gate->ingates.inputs.parent;
+		if (parentID < m_vGates.size())
+			return CheckIfGateTrapsQueue(gate->ingates.inputs.parent, queue, queueType);
+		else // apparently conversion gates like to use the pointer with 1 input!?
+			return CheckIfGateTrapsQueue(gate->ingates.inputs.parents[0], queue, queueType);
+	}
+	else if (ningates == 2)
+	{
+		return CheckIfGateTrapsQueue(gate->ingates.inputs.twin.left, queue, queueType) || CheckIfGateTrapsQueue(gate->ingates.inputs.twin.right, queue, queueType);
+	}
+	else
+	{
+		return std::any_of(gate->ingates.inputs.parents, gate->ingates.inputs.parents + gate->ingates.ningates, [this, &queue, queueType](uint32_t x) {return CheckIfGateTrapsQueue(x, queue, queueType); });
+	}
 }

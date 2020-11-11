@@ -345,13 +345,15 @@ uint32_t BooleanCircuit::PutYaoSharedSIMDINGate(uint32_t nvals, yao_fields keys)
 	//TODO: fixed to 128-bit security atm. CHANGE
 	uint8_t keybytelen = ceil_divide(128, 8);
 	if(m_eMyRole == SERVER) {
-		gate->gs.yinput.outKey = (uint8_t*) malloc(keybytelen * nvals);
-		memcpy(gate->gs.yinput.outKey, keys.outKey, keybytelen * nvals);
+		gate->gs.yinput.outKey[0] = (uint8_t*) malloc(keybytelen * nvals);
+		gate->gs.yinput.outKey[1] = (uint8_t*) malloc(keybytelen * nvals);
+		memcpy(gate->gs.yinput.outKey[0], keys.outKey[0], keybytelen * nvals);
+		memcpy(gate->gs.yinput.outKey[1], keys.outKey[1], keybytelen * nvals);
 		gate->gs.yinput.pi = (uint8_t*) malloc(nvals);
 		memcpy(gate->gs.yinput.pi, keys.pi, nvals);
 	} else {
 		gate->gs.yval = (uint8_t*) malloc(keybytelen * nvals);
-		memcpy(gate->gs.yval, keys.outKey, keybytelen * nvals);
+		memcpy(gate->gs.yval, keys.outKey[0], keybytelen * nvals);
 	}
 
 	gate->instantiated = true;

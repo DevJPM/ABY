@@ -40,7 +40,7 @@ public:
 	 Constructor of the class.
 	 */
 	YaoServerSharing(e_sharing context, e_role role, uint32_t sharebitlen, ABYCircuit* circuit, crypto* crypt, const std::string& circdir = ABY_CIRCUIT_DIR) :
-			YaoSharing(context, role, sharebitlen, circuit, crypt, circdir), m_aAESBuffer(static_cast<uint8_t*>(std::aligned_alloc(64,M_AES_STREAM_PROCESSING_BUFFER_SIZE))){
+			YaoSharing(context, role, sharebitlen, circuit, crypt, circdir) {
 		InitServer();
 	}
 	;
@@ -75,33 +75,42 @@ public:
 	}
 	;
 	//ENDS HERE..
+protected:
+	virtual void evaluateDeferredANDGates(ABYSetup* setup, size_t numWires) = 0;
+	virtual void evaluateDeferredXORGates(size_t numWires) = 0;
 
-	struct GarbledTableJob
-	{
-		GATE* owningGate;
-		const uint32_t simdPosition;
-		const uint32_t owningGateID;
-	};
+	// these return true if they already fully processed the gate
+	// at hand which then does not need to be queued
+	virtual bool evaluateXORGate(GATE* gate) = 0;
+	virtual bool evaluateANDGate(ABYSetup* setup, GATE* gate) = 0;
+	virtual bool evaluateUNIVGate(GATE* gate) = 0;
+	virtual bool evaluateConstantGate(GATE* gate) = 0;
 
+	virtual void createOppositeInputKeys(CBitVector& oppositeInputKeys, CBitVector& reglarInputKeys, size_t numKeys) =0;
+
+	virtual void prepareGarblingSpecificSetup() = 0;
+	virtual void resetGarblingSpecific() = 0;
+
+	const std::vector<GATE*>& getAndQueue() const { return m_andQueue; }
+	const std::vector<GATE*>& getXorQueue() const { return m_xorQueue; }
+
+	// this is only for AND gates
+	uint64_t m_nGarbledTableSndCtr;
+	
 private:
-	// would prefer a larger window, but it would be quite mean...
-	// so we opt for the small one instead
-	// constexpr static size_t M_AES_STREAM_PROCESSING_BUFFER_SIZE = 16 * 4 * 4 * 1024; /**< size of the internal AES processing buffer, 16 byte per AES block, 4 blocks per AND gate, 4096 per batch*/
-	constexpr static size_t M_AES_STREAM_PROCESSING_BUFFER_SIZE = GARBLED_TABLE_WINDOW / 8;
-	std::unique_ptr<uint8_t[], free_byte_deleter> m_aAESBuffer;/**< Buffer for the internal AES processing, 64 byte alignment to facilitate AVX-512 accesses*/
-	std::vector<GarbledTableJob> m_vCurrentANDGates; /**< Pointer to the current layer's AND gates, one entry per garbled table (i.e. one per bit which means >1 per SIMD AND)*/
-	std::unique_ptr<AESProcessorHalfGateGarbling> m_aesProcessor; /**< Processor for the generation of the garbled table PRF calls in a more optimized way*/
+	std::vector<GATE*> m_andQueue; /**< Pointer to the current layer's AND gates, one entry per garbled table (i.e. one per bit which means >1 per SIMD AND)*/
+	std::vector<GATE*> m_xorQueue;
 
-	//Global constant key
-	CBitVector m_vR; /**< _____________*/
+	CBitVector m_vOppositeServerInputKeys;
+	CBitVector m_vOppositeClientInputKeys;
+	bool m_inDestructor = false;
+	
 	//Permutation bits for the servers input keys
 	CBitVector m_vPermBits; /**< _____________*/
 	//Random values from output of ot extension
 	std::vector<CBitVector> m_vROTMasks; /**< Masks_______________*/
 	uint32_t m_nClientInputKexIdx; /**< Client __________*/
 	uint32_t m_nClientInputKeyCtr; /**< Client __________*/
-
-	uint64_t m_nGarbledTableSndCtr;
 
 	CBitVector m_vServerKeySndBuf; /**< Server Key Sender Buffer*/
 	std::vector<CBitVector> m_vClientKeySndBuf; /**< Client Key Sender Buffer*/
@@ -123,11 +132,6 @@ private:
 	uint32_t m_nServerKeyCtr; /**< _____________*/
 	uint32_t m_nClientInBitCtr; /**< _____________*/
 
-	uint8_t* m_bLMaskBuf[2]; /**< _____________*/
-	uint8_t* m_bRMaskBuf[2]; /**< _____________*/
-	uint8_t* m_bLKeyBuf; /**< _____________*/
-	uint8_t* m_bOKeyBuf[2]; /**< _____________*/
-	uint8_t* m_bTmpBuf;
 	//CBitVector
 
 	std::vector<uint32_t> m_vClientInputGate; /**< _____________*/
@@ -264,15 +268,9 @@ private:
 	*/
 	void CreateGarbledTableJIT(GATE* ggate, uint32_t pos,GATE* gleft,GATE* gright);
 
-	/** 
-	* Evaluates the AND gate by copying the pre-computed wire keys into the appropriate buffer(s)
-	* \param gate The AND gate to be evaluated as well as the simd position within the gate
-	* \param bufferOffset the offset (number of tables) into the m_aAESBuffer
-	*/
-	void CreateGarbledTablePrecomputed(const GarbledTableJob& gate, size_t bufferOffset);
 
 	/**
-	* Evaluates the AND garbled tables queued up in m_vCurrentANDGates and sends them off
+	* Evaluates the AND garbled tables queued up in m_andQueue and sends them off
 	* \param setup used to send the garbled tables off whenever a batch is full
 	*/
 	void EvaluateDeferredANDGates(ABYSetup* setup);

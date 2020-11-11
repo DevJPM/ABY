@@ -26,6 +26,8 @@
 #include "../sharing/splut.h"
 #include "../sharing/yaoclientsharing.h"
 #include "../sharing/yaoserversharing.h"
+#include "../sharing/yao_variants/halfgates_prp_client.h"
+#include "../sharing/yao_variants/halfgates_prp_server.h"
 #include <ENCRYPTO_utils/crypto/crypto.h>
 #include <ENCRYPTO_utils/connection.h>
 #include <ENCRYPTO_utils/thread.h>
@@ -274,12 +276,12 @@ BOOL ABYParty::InitCircuit(uint32_t bitlen, uint32_t reservegates, const std::st
 	m_vSharings.resize(S_LAST);
 	m_vSharings[S_BOOL] = new BoolSharing(S_BOOL, m_eRole, 1, m_pCircuit, m_cCrypt.get(), abycircdir);
 	if (m_eRole == SERVER) {
-		m_vSharings[S_YAO] = new YaoServerSharing(S_YAO, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
-		m_vSharings[S_YAO_REV] = new YaoClientSharing(S_YAO_REV, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+		m_vSharings[S_YAO] = new HalfGatesPRPServerSharing(S_YAO, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+		m_vSharings[S_YAO_REV] = new HalfGatesPRPClientSharing(S_YAO_REV, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
 	}
 	else {
-		m_vSharings[S_YAO] = new YaoClientSharing(S_YAO, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
-		m_vSharings[S_YAO_REV] = new YaoServerSharing(S_YAO_REV, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+		m_vSharings[S_YAO] = new HalfGatesPRPClientSharing(S_YAO, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+		m_vSharings[S_YAO_REV] = new HalfGatesPRPServerSharing(S_YAO_REV, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
 	}
 	switch (bitlen) {
 	case 8:

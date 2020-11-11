@@ -29,47 +29,38 @@ static void PrintKey(__m512i data) {
 	std::cout << (std::dec);
 }
 
-void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tableCounter, size_t numTablesInBatch)
-{
-	if (m_gateQueue.size() == 0)
-		return;
+static void PrintKey(__m128i data) {
+	uint8_t key[16];
+	_mm_storeu_si128((__m128i*)key, data);
 
-	const size_t leftovers = numTablesInBatch % mainEvaluatingWidthVaes;
-	const size_t mainBulkSize = numTablesInBatch - leftovers;
-
-	computeAESPreOutKeys<mainEvaluatingWidthVaes>(tableCounter, 0, 0, mainBulkSize);
-
-	size_t numTablesLeft = 0;
-	int64_t ridx;
-
-	for (ridx = m_gateQueue.size() - 1; ridx >= 0; --ridx)
-	{
-		numTablesLeft += m_gateQueue[ridx]->nvals;
-		if (numTablesLeft >= leftovers)
-			break;
+	for (uint32_t i = 0; i < 16; i++) {
+		std::cout << std::setw(2) << std::setfill('0') << (std::hex) << (uint32_t)key[i];
 	}
-
-	if (leftovers > 0)
-	{
-		computeAESPreOutKeys<1>(tableCounter + mainBulkSize, ridx, numTablesLeft - leftovers, leftovers);
-	}
+	std::cout << (std::dec);
 }
 
-void FixedKeyLTGarblingVaesProcessor::fillAESBufferAND(size_t baseOffset, uint32_t tableCounter, size_t numTablesInBatch)
+void FixedKeyLTEvaluatingVaesProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	const size_t leftovers = numTablesInBatch % mainGarblingWidthVaes;
-	const size_t mainBulkSize = numTablesInBatch - leftovers;
+	ProcessQueue(m_gateQueue, mainEvaluatingWidthVaes, numTablesInBatch, tableCounter, receivedTables);
+}
 
-	fillAESBufferAND<mainGarblingWidthVaes>(baseOffset, tableCounter, mainBulkSize, 0);
+void FixedKeyLTEvaluatingVaesProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainEvaluatingWidthVaes>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+}
 
-	if (leftovers > 0)
-	{
-		fillAESBufferAND<1>(baseOffset + mainBulkSize, tableCounter + mainBulkSize, leftovers, mainBulkSize * 16 * 4); // 16 bytes per ciphertext, 4 per table
-	}
+void FixedKeyLTEvaluatingVaesProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<1>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
+}
+
+void FixedKeyLTGarblingVaesProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
+{
+	ProcessQueue(m_tableGateQueue, mainGarblingWidthVaes, numTablesInBatch, tableCounter, tableBuffer);
 }
 
 template<size_t width>
-inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch)
+inline void FixedKeyLTEvaluatingVaesProcessor::computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables)
 {
 	constexpr size_t div_width = (width + 3) / 4; // ceiling division
 
@@ -111,8 +102,10 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 	__m512i rightData[div_width];
 	__m512i leftKeys[div_width];
 	__m512i rightKeys[div_width];
+	__m512i finalMask[div_width];
 	uint8_t* targetGateKey[width];
 	__m512i aes_keys[11];
+	const uint8_t* gtptr = receivedTables + tableCounter * KEYS_PER_GATE_IN_TABLE * 16;
 
 	for (size_t i = 0; i < 11; ++i)
 	{
@@ -127,6 +120,7 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 	{
 		__m128i leftTemp[width];
 		__m128i rightTemp[width];
+		__m128i finalTemp[width];
 		// TODO: optimize using bigger vector loads potentially?
 		for (size_t w = 0; w < width; ++w)
 		{
@@ -135,11 +129,27 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 			const uint32_t rightParentId = currentGate->ingates.inputs.twin.right;
 			const GATE* leftParent = &m_vGates[leftParentId];
 			const GATE* rightParent = &m_vGates[rightParentId];
+			const uint8_t* leftParentKey = leftParent->gs.yval + 16 * currentOffset;
+			const uint8_t* rightParentKey = rightParent->gs.yval + 16 * currentOffset;
 
-			leftTemp[w] = _mm_loadu_si128((__m128i*)(leftParent->gs.yval + 16 * currentOffset));
-			rightTemp[w] = _mm_loadu_si128((__m128i*)(rightParent->gs.yval + 16 * currentOffset));
+			leftTemp[w] = _mm_loadu_si128((__m128i*)leftParentKey);
+			rightTemp[w] = _mm_loadu_si128((__m128i*)rightParentKey);
 
 			targetGateKey[w] = currentGate->gs.yval + 16 * currentOffset;
+
+			finalTemp[w] = _mm_setzero_si128();
+			if (leftParentKey[15] & 0x01)
+			{
+				finalTemp[w] = _mm_loadu_si128((__m128i*)gtptr);
+			}
+			gtptr += 16;
+			if (rightParentKey[15] & 0x01)
+			{
+				__m128i temp = _mm_loadu_si128((__m128i*)gtptr);
+				finalTemp[w] = _mm_xor_si128(finalTemp[w], temp);
+				finalTemp[w] = _mm_xor_si128(finalTemp[w], leftTemp[w]);
+			}
+			gtptr += 16;
 
 			currentOffset++;
 
@@ -171,6 +181,15 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 			INSERT(rightKeys, rightTemp, 1);
 			INSERT(rightKeys, rightTemp, 2);
 			INSERT(rightKeys, rightTemp, 3);
+		}
+
+		for (size_t w = 0; w < div_width; ++w)
+		{
+			//INSERT(rightKeys, rightTemp, 0);
+			finalMask[w] = _mm512_castsi128_si512(finalTemp[4 * w]);
+			INSERT(finalMask, finalTemp, 1);
+			INSERT(finalMask, finalTemp, 2);
+			INSERT(finalMask, finalTemp, 3);
 		}
 #undef INSERT
 
@@ -232,6 +251,7 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 			leftData[w] = _mm512_xor_si512(leftData[w], leftKeys[w]);
 			rightData[w] = _mm512_xor_si512(rightData[w], rightKeys[w]);
 			leftData[w] = _mm512_xor_si512(leftData[w], rightData[w]);
+			leftData[w] = _mm512_xor_si512(leftData[w], finalMask[w]);
 		}
 
 
@@ -256,12 +276,8 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESPreOutKeys(uint32_t tab
 // width in number of tables
 // bufferOffset in bytes
 template<size_t width>
-void FixedKeyLTGarblingVaesProcessor::fillAESBufferAND(size_t baseOffset, uint32_t tableCounter, size_t numTablesInBatch, size_t bufferOffset)
+void FixedKeyLTGarblingVaesProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
 {
-	assert(bufferOffset + numTablesInBatch * 4 * 16 <= m_bufferSize);
-
-	std::cout << "garbling VAES" << std::endl;
-
 	const __m512i COUNTER_DIFF = _mm512_set_epi32(
 		0, 0, 0, 2,
 		0, 0, 0, 2,
@@ -282,6 +298,12 @@ void FixedKeyLTGarblingVaesProcessor::fillAESBufferAND(size_t baseOffset, uint32
 	__m512i data[width];
 	__m512i keys[width];
 	__m512i aes_keys[11];
+	__m512i postMask[width];
+	uint8_t* targetGateKey[width];
+	uint8_t* targetGateKeyR[width];
+	uint8_t rpbit[width];
+	uint8_t finalMask[width];
+	uint8_t* targetPiBit[width];
 
 	for (size_t i = 0; i < 11; ++i)
 	{
@@ -290,6 +312,11 @@ void FixedKeyLTGarblingVaesProcessor::fillAESBufferAND(size_t baseOffset, uint32
 	}
 
 	const __m128i R = _mm_loadu_si128((__m128i*)m_globalRandomOffset);
+	const __m512i wideR = _mm512_broadcast_i32x4(R);
+
+	uint32_t currentOffset = simdStartOffset;
+	uint32_t currentGateIdx = queueStartIndex;
+	uint8_t* gtptr = tableBuffer + 16 * KEYS_PER_GATE_IN_TABLE * tableCounter;
 
 	for (size_t i = 0; i < numTablesInBatch; i += width)
 	{
@@ -297,18 +324,38 @@ void FixedKeyLTGarblingVaesProcessor::fillAESBufferAND(size_t baseOffset, uint32
 		// saving vGate, parent base pointer and owning gate lookups
 		for (size_t w = 0; w < width; ++w)
 		{
-			const size_t index = w + i + baseOffset;
-			const auto currentGate = m_tableGateQueue[index];
-			const uint32_t leftParentId = currentGate.owningGate->ingates.inputs.twin.left;
-			const uint32_t rightParentId = currentGate.owningGate->ingates.inputs.twin.right;
+			const GATE* currentGate = m_tableGateQueue[currentGateIdx];
+			const uint32_t leftParentId = currentGate->ingates.inputs.twin.left;
+			const uint32_t rightParentId = currentGate->ingates.inputs.twin.right;
 			const GATE* leftParent = &m_vGates[leftParentId];
 			const GATE* rightParent = &m_vGates[rightParentId];
-			const uint32_t simdOffset = currentGate.simdPosition;
+			const uint8_t* leftParentKey = leftParent->gs.yinput.outKey[0] + 16 * currentOffset;
+			const uint8_t* rightParentKey = rightParent->gs.yinput.outKey[0] + 16 * currentOffset;
+			const uint8_t lpbit = leftParent->gs.yinput.pi[currentOffset];
+			rpbit[w] = rightParent->gs.yinput.pi[currentOffset];
 
-			__m128i lowerLow = _mm_loadu_si128((__m128i*)(leftParent->gs.yinput.outKey + 16 * simdOffset));
-			__m128i upperLow = _mm_xor_si128(lowerLow, R);
-			__m128i lowerUpper = _mm_loadu_si128((__m128i*)(rightParent->gs.yinput.outKey + 16 * simdOffset));
-			__m128i upperUpper = _mm_xor_si128(lowerUpper, R);
+			const uint8_t rpbit11 = (rpbit[w] << 1) | rpbit[w];
+
+			currentGate->gs.yinput.pi[currentOffset] = lpbit & rpbit[w];
+
+			const __m128i lowerLow = _mm_loadu_si128((__m128i*)leftParentKey);
+			const __m128i upperLow = _mm_xor_si128(lowerLow, R);
+			const __m128i lowerUpper = _mm_loadu_si128((__m128i*)rightParentKey);
+			const __m128i upperUpper = _mm_xor_si128(lowerUpper, R);
+
+			if (lpbit)
+				postMask[w] = _mm512_inserti32x4(wideR, upperLow, 2);
+			else
+				postMask[w] = _mm512_inserti32x4(wideR, lowerLow, 2);
+
+			targetGateKey[w] = currentGate->gs.yinput.outKey[0] + 16 * currentOffset;
+			targetGateKeyR[w] = currentGate->gs.yinput.outKey[1] + 16 * currentOffset;
+			targetPiBit[w] = currentGate->gs.yinput.pi + currentOffset;
+
+			const uint8_t lsbitANDrsbit = (leftParentKey[15] & 0x01) & (rightParentKey[15] & 0x01);
+			const uint8_t lsbitANDrsbit11 = (lsbitANDrsbit << 1) | lsbitANDrsbit;
+
+			finalMask[w] = lsbitANDrsbit11 | (rpbit11 << 2) | (0x03 << 4) | (lsbitANDrsbit11 << 6);
 
 			// this is a "tree" construction due to the high latency of the inserti instructions
 			keys[w] = _mm512_castsi128_si512(lowerLow);
@@ -316,6 +363,14 @@ void FixedKeyLTGarblingVaesProcessor::fillAESBufferAND(size_t baseOffset, uint32
 			upper = _mm256_inserti128_si256(upper, upperUpper, 1);
 			keys[w] = _mm512_inserti32x4(keys[w], upperLow, 1);
 			keys[w] = _mm512_inserti64x4(keys[w], upper, 1);
+
+			currentOffset++;
+
+			if (currentOffset >= currentGate->nvals)
+			{
+				currentGateIdx++;
+				currentOffset = 0;
+			}
 		}
 
 		for (size_t w = 0; w < width; ++w)
@@ -364,6 +419,54 @@ void FixedKeyLTGarblingVaesProcessor::fillAESBufferAND(size_t baseOffset, uint32
 
 
 		for (size_t w = 0; w < width; ++w)
-			_mm512_store_si512((__m512i*)(m_aesBuffer + bufferOffset + (i + w) * 64), data[w]); // 64 = 4 (#PRF calls) * 16 (PRF result size)
+		{
+			// intent (shuffling into, in terms of 128-bit lanes):
+			// 2
+			// 0
+			// 3
+			// 0
+			const __m512i shuffleKey = _mm512_set_epi64(
+				1, 0,
+				7, 6,
+				1, 0,
+				5, 4
+			);
+			__m512i shuffledCopy = _mm512_permutexvar_epi64(shuffleKey, data[w]);
+			__m512i firstXor = _mm512_xor_si512(data[w], shuffledCopy);
+
+			__m512i secondXor = _mm512_mask_xor_epi64(firstXor, finalMask[w], firstXor, postMask[w]);
+			_mm_storeu_si128((__m128i*)gtptr, _mm512_extracti32x4_epi32(secondXor, 1));
+			gtptr += 16;
+			_mm_storeu_si128((__m128i*)gtptr, _mm512_extracti32x4_epi32(secondXor, 2));
+			gtptr += 16;
+			__m128i outKey;
+			if (rpbit[w]) {
+				__m128i rXor = _mm512_extracti32x4_epi32(firstXor, 2);
+				outKey = _mm512_extracti32x4_epi32(secondXor, 3);
+				outKey = _mm_xor_si128(outKey, rXor);
+			}
+			else {
+				outKey = _mm512_extracti32x4_epi32(secondXor, 0);
+			}
+			uint8_t rBit = _mm_extract_epi8(R, 15) & 0x01;
+			uint8_t outWireBit = _mm_extract_epi8(outKey, 15) & 0x01;
+			if (outWireBit) {
+				outKey = _mm_xor_si128(outKey, R);
+				*targetPiBit[w] ^= rBit;
+			}
+				
+			_mm_storeu_si128((__m128i*)targetGateKey[w], outKey);
+			_mm_storeu_si128((__m128i*)targetGateKeyR[w], _mm_xor_si128(outKey,R));
+		}
 	}
+}
+
+void FixedKeyLTGarblingVaesProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+{
+	computeOutKeysAndTable<mainGarblingWidthVaes>(wireCounter, numWiresInBatch, 0, 0, tableBuffer);
+}
+
+void FixedKeyLTGarblingVaesProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeOutKeysAndTable<1>(wireCounter, numWiresInBatch, queueStartIndex, simdStartOffset, tableBuffer);
 }

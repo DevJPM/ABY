@@ -242,7 +242,8 @@ void Sharing::FreeGate(GATE *gate) {
 		if(role == SERVER) {
 			// input gates are freed before
 			if(gate->type == G_IN || gate->type == G_CONV) { break; }
-			free(gate->gs.yinput.outKey);
+			free(gate->gs.yinput.outKey[0]);
+			free(gate->gs.yinput.outKey[1]);
 			free(gate->gs.yinput.pi);
 		} else {
 			free(gate->gs.yval);
