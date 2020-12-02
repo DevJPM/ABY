@@ -18,27 +18,7 @@ protected:
 	virtual void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) = 0;
 };
 
-class AESProcessorHalfGateGarbling : protected VectorizedQueueProcessor
-{
-public:
-	/**
-	* Fills an otherwise specified buffer with AES PRF calculations for AND gates
-	* \param baseOffset the offset into the queue of the AND gates
-	* \param tableCounter the number of tables already generated
-	* \param numTablesInBatch the number of garbled tables for which to calculate the PRF evaluations
-	*/
-	virtual void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) = 0;
-
-	/**
-	* Sets the global key difference R
-	* \param r the global key difference
-	*/
-	virtual void setGlobalKey(const uint8_t* r) = 0;
-
-	virtual ~AESProcessorHalfGateGarbling() {};
-};
-
-class AESProcessorHalfGateEvaluation : protected VectorizedQueueProcessor
+class AESProcessor : protected VectorizedQueueProcessor
 {
 public:
 	/**
@@ -47,7 +27,19 @@ public:
 	*/
 	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables) = 0;
 
-	virtual ~AESProcessorHalfGateEvaluation() {};
+	virtual ~AESProcessor() {};
+};
+
+class AESProcessorHalfGateGarbling : public AESProcessor
+{
+public:
+	/**
+	* Sets the global key difference R
+	* \param r the global key difference
+	*/
+	virtual void setGlobalKey(const uint8_t* r) = 0;
+
+	virtual ~AESProcessorHalfGateGarbling() {};
 };
 
 #endif

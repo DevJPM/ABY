@@ -181,7 +181,7 @@ void FixedKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCoun
 	}
 }
 
-void FixedKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
+void FixedKeyLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
 {
 	ProcessQueue(m_tableGateQueue, mainGarblingWidthNI, numTablesInBatch, tableCounter, tableBuffer);
 }
@@ -378,7 +378,7 @@ void InputKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCoun
 	}
 }
 
-void InputKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
+void InputKeyLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
 {
 	ProcessQueue(m_tableGateQueue, mainGarblingWidthNI, numTablesInBatch, tableCounter, tableBuffer);
 }
@@ -393,20 +393,16 @@ void InputKeyLTGarblingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, 
 	computeOutKeysAndTable<1>(wireCounter, numWiresInBatch, queueStartIndex, simdStartOffset, tableBuffer);
 }
 
-void FixedKeyProvider::expandAESKey()
+static void expandAESKey(__m128i userkey, uint8_t* alignedStoragePointer)
 {
 	// this uses the fast AES key expansion (i.e. not using keygenassist) from
 	// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
 	// page 37
 
-	uint8_t* alignedStoragePointer = m_expandedStaticAESKey.get();
-
 	__m128i temp1, temp2, temp3;
 	__m128i shuffle_mask =
 		_mm_set_epi32(0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d);
 	__m128i rcon;
-	// note that order is most significant to least significant byte for this intrinsic
-	const __m128i userkey = _mm_set_epi8(0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00);
 	temp1 = userkey;
 	rcon = _mm_set_epi32(1, 1, 1, 1);
 	_mm_store_si128((__m128i*)(alignedStoragePointer + 0 * 16), temp1);
@@ -743,4 +739,15 @@ void InputKeyLTEvaluatingAesniProcessor::LeftoversProcessor(uint32_t wireCounter
 	computeAESOutKeys<1>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
-
+void FixedKeyProvider::expandAESKey(const uint8_t* userkey)
+{
+	if (userkey) {
+		__m128i key = _mm_loadu_si128((__m128i*)userkey);
+		::expandAESKey(key, m_expandedStaticAESKey.get());
+	}
+	else {
+		// note that order is most significant to least significant byte for this intrinsic
+		const __m128i key = _mm_set_epi8(0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00);
+		::expandAESKey(key, m_expandedStaticAESKey.get());
+	}
+}

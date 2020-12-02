@@ -16,17 +16,19 @@ protected:
 	size_t ciphertextPerAND() const override { return 2; }
 	size_t ciphertextPerXOR() const override { return 0; }
 
-	void evaluateDeferredXORGates(size_t numWires) override {}
+	inline void evaluateDeferredXORGates(size_t numWires) override {}
 	void evaluateDeferredANDGates(size_t numWires) override;
 	bool evaluateXORGate(GATE* gate) override;
-	bool evaluateANDGate(GATE* gate) override { return false; }
+	inline bool evaluateANDGate(GATE* gate) override { return false; }
 	bool evaluateUNIVGate(GATE* gate) override;
+
+	inline void resetEvaluationSpecific() override {}
 private:
 	void InitClient();
 	void EvaluateGarbledTablePrepared(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright);
 	void EvaluateUniversalGate(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright);
 
-	std::unique_ptr<AESProcessorHalfGateEvaluation> m_aesProcessor; /**< Processor for the generation of the garbled table PRF calls in a more optimized way*/
+	std::unique_ptr<AESProcessor> m_aesProcessor; /**< Processor for the generation of the garbled table PRF calls in a more optimized way*/
 };
 
 #endif

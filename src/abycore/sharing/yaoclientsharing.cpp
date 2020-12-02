@@ -44,6 +44,7 @@ void YaoClientSharing::InitClient() {
 }
 
 YaoClientSharing::~YaoClientSharing() {
+		m_inDestructor = true;
 		Reset();
 		for(size_t i = 0; i < KEYS_PER_GATE_IN_TABLE; i++) {
 			free(m_vTmpEncBuf[i]);
@@ -67,6 +68,7 @@ void YaoClientSharing::PrepareSetupPhase(ABYSetup* setup) {
 	uint64_t gt_size, gtxor_size;
 	uint64_t univ_size;
 	m_nANDGates = m_cBoolCircuit->GetNumANDGates();
+	m_nXORGates = m_cBoolCircuit->GetNumXORVals();
 	m_nUNIVGates = m_cBoolCircuit->GetNumUNIVGates();
 
 	gt_size = ((uint64_t) m_nANDGates) * ciphertextPerAND() * m_nSecParamBytes;
@@ -757,6 +759,9 @@ uint32_t YaoClientSharing::GetOutput(CBitVector& out) {
 }
 
 void YaoClientSharing::Reset() {
+	if (!m_inDestructor)
+		resetEvaluationSpecific();
+
 	m_vROTMasks.delCBitVector();
 	m_nChoiceBitCtr = 0;
 	m_vChoiceBits.delCBitVector();

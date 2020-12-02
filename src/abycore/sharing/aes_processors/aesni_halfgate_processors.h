@@ -14,14 +14,14 @@ using std::uint8_t;
 class FixedKeyProvider final
 {
 public:
-	FixedKeyProvider() :
+	FixedKeyProvider(const uint8_t* userkey=nullptr) :
 		m_expandedStaticAESKey(static_cast<uint8_t*>(std::aligned_alloc(16, 11 * 16)))
 	{
-		expandAESKey();
+		expandAESKey(userkey);
 	}
 	const uint8_t* getExpandedStaticKey() const { return m_expandedStaticAESKey.get(); }
 private:
-	void expandAESKey();
+	void expandAESKey(const uint8_t* userkey);
 	std::unique_ptr<uint8_t[], free_byte_deleter> m_expandedStaticAESKey;
 };
 
@@ -34,7 +34,7 @@ public:
 	{
 	}
 	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r; }
-	virtual void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
+	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
 private:
 	// only processes multiples of width
 	template<size_t width> void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer);
@@ -56,7 +56,7 @@ public:
 	{
 	}
 	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r; }
-	virtual void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
+	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
 private:
 	// only processes multiples of width
 	template<size_t width> void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer);
@@ -70,7 +70,7 @@ private:
 	virtual void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
-class FixedKeyLTEvaluatingAesniProcessor : public AESProcessorHalfGateEvaluation
+class FixedKeyLTEvaluatingAesniProcessor : public AESProcessor
 {
 public:
 	FixedKeyLTEvaluatingAesniProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates) :
@@ -90,7 +90,7 @@ private:
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
-class InputKeyLTEvaluatingAesniProcessor : public AESProcessorHalfGateEvaluation
+class InputKeyLTEvaluatingAesniProcessor : public AESProcessor
 {
 public:
 	InputKeyLTEvaluatingAesniProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates) :

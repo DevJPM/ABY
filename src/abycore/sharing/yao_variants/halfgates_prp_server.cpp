@@ -18,6 +18,7 @@ bool HalfGatesPRPServerSharing::evaluateConstantGate(GATE* gate) {
 	UGATE_T constval = gate->gs.constval;
 	InstantiateGate(gate);
 	memset(gate->gs.yinput.outKey[0], 0, m_nSecParamBytes * gate->nvals);
+	//memset(gate->gs.yinput.outKey[1], 0, m_nSecParamBytes * gate->nvals);
 	for (uint32_t i = 0; i < gate->nvals; ++i) {
 		memcpy(gate->gs.yinput.outKey[1] + m_nSecParamBytes * i, m_vR.GetArr(), m_nSecParamBytes);
 		if (constval == 1L) {
@@ -52,7 +53,7 @@ void HalfGatesPRPServerSharing::evaluateDeferredANDGates(ABYSetup* setup, size_t
 
 	// we call into another class here as this allows us to exploit dynamic dispatch
 	// to switch between AES256, AES128, AES-NI and VAES as needed based on a ctor parameter
-	m_aesProcessor->computeOutKeysAndTable(m_nAndGateTableCtr, numWires, m_vAndGateTable.GetArr());
+	m_aesProcessor->computeAESOutKeys(m_nAndGateTableCtr, numWires, m_vAndGateTable.GetArr());
 
 	for (auto* currentGate : getAndQueue())
 	{

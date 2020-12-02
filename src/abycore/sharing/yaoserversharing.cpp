@@ -61,6 +61,7 @@ void YaoServerSharing::PrepareSetupPhase(ABYSetup* setup) {
 	uint64_t xor_size;
 	uint32_t symbits = m_cCrypto->get_seclvl().symbits;
 	m_nANDGates = m_cBoolCircuit->GetNumANDGates();
+	m_nXORGates = m_cBoolCircuit->GetNumXORVals();
 	m_nUNIVGates = m_cBoolCircuit->GetNumUNIVGates();
 
 	gt_size = ((uint64_t) m_nANDGates) * ciphertextPerAND() * m_nSecParamBytes;
@@ -85,6 +86,7 @@ void YaoServerSharing::PrepareSetupPhase(ABYSetup* setup) {
 	buf = (BYTE*) malloc(univ_size);
 	m_vUniversalGateTable.AttachBuf(buf, univ_size);
 
+	m_vXorGateTable.Create(0);
 	buf = (BYTE*)malloc(xor_size);
 	m_vXorGateTable.AttachBuf(buf, xor_size);
 

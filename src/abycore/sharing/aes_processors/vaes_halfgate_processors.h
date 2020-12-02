@@ -22,7 +22,7 @@ public:
 	{
 	}
 	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r; }
-	virtual void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
+	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
 private:
 	// only processes multiples of width
 	template<size_t width> void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer);
@@ -36,7 +36,7 @@ private:
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
-class FixedKeyLTEvaluatingVaesProcessor : public AESProcessorHalfGateEvaluation
+class FixedKeyLTEvaluatingVaesProcessor : public AESProcessor
 {
 public:
 	FixedKeyLTEvaluatingVaesProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates) :

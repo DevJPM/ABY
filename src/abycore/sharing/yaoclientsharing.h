@@ -78,12 +78,16 @@ protected:
 	virtual bool evaluateANDGate(GATE* gate) = 0;
 	virtual bool evaluateUNIVGate(GATE* gate) = 0;
 
+	virtual void resetEvaluationSpecific() = 0;
+
 	const std::vector<GATE*>& getAndQueue() const { return m_andQueue; }
 	const std::vector<GATE*>& getXorQueue() const { return m_xorQueue; }
 private:
 	// these queues are member variables because we want to avoid re-allocations
 	std::vector<GATE*> m_andQueue;
 	std::vector<GATE*> m_xorQueue;
+
+	bool m_inDestructor = false;
 
 	CBitVector m_vROTMasks; /**< Masks_______________*/
 	uint32_t m_nChoiceBitCtr; /**< Choice bits counter.*/

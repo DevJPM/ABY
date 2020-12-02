@@ -54,7 +54,7 @@ void FixedKeyLTEvaluatingVaesProcessor::LeftoversProcessor(uint32_t wireCounter,
 	computeAESOutKeys<1>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
-void FixedKeyLTGarblingVaesProcessor::computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
+void FixedKeyLTGarblingVaesProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
 {
 	ProcessQueue(m_tableGateQueue, mainGarblingWidthVaes, numTablesInBatch, tableCounter, tableBuffer);
 }

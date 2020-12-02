@@ -1,7 +1,10 @@
 #include "aes_processor.h"
 
+#include <cassert>
+
 void VectorizedQueueProcessor::ProcessQueue(const std::vector<GATE*>& queue, const size_t vectorWidth, const size_t numWires, uint32_t wireCounter, uint8_t* tableBuffer)
 {
+	assert(numWires >= queue.size());
 	if (queue.size() == 0)
 		return;
 

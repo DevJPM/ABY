@@ -156,8 +156,10 @@ int32_t test_standard_ops(aby_ops_t* test_ops, ABYParty* party, uint32_t bitlen,
 	for (uint32_t r = 0; r < num_test_runs; r++) {
 		for (uint32_t i = 0; i < nops; i++) {
 			Circuit* circ = sharings[test_ops[i].sharing]->GetCircuitBuildRoutine();
-			a = (uint32_t) rand() % ((uint64_t) 1<<bitlen);
-			b = (uint32_t) rand() % ((uint64_t) 1<<bitlen);
+			//a = (uint32_t) rand() % ((uint64_t) 1<<bitlen);
+			//b = (uint32_t) rand() % ((uint64_t) 1<<bitlen);
+			a = (uint32_t)~0;
+			b = (uint32_t)~0;
 
 			shra = circ->PutINGate(a, bitlen, SERVER);
 			shrb = circ->PutINGate(b, bitlen, CLIENT);
