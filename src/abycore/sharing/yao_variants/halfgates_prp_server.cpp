@@ -32,6 +32,25 @@ bool HalfGatesPRPServerSharing::evaluateConstantGate(GATE* gate) {
 	return true;
 }
 
+bool HalfGatesPRPServerSharing::evaluateInversionGate(GATE* gate)
+{
+	uint32_t parentid = gate->ingates.inputs.parent;
+	InstantiateGate(gate);
+	assert((gate - m_vGates.data()) > parentid);
+	GATE* parentGate = &m_vGates[parentid];
+	memcpy(gate->gs.yinput.outKey[0], m_vGates[parentid].gs.yinput.outKey[0], m_nSecParamBytes * gate->nvals);
+	memcpy(gate->gs.yinput.outKey[1], m_vGates[parentid].gs.yinput.outKey[1], m_nSecParamBytes * gate->nvals);
+	for (uint32_t i = 0; i < gate->nvals; i++) {
+		gate->gs.yinput.pi[i] = parentGate->gs.yinput.pi[i] ^ 0x01;
+
+		assert(gate->gs.yinput.pi[i] < 2 && parentGate->gs.yinput.pi[i] < 2);
+
+	}
+	UsedGate(parentid);
+
+	return true;
+}
+
 void HalfGatesPRPServerSharing::createOppositeInputKeys(CBitVector& oppositeInputKeys, CBitVector& regularInputKeys, size_t numKeys)
 {
 	const size_t numBytes = numKeys * m_nSecParamBytes;
@@ -42,6 +61,18 @@ void HalfGatesPRPServerSharing::createOppositeInputKeys(CBitVector& oppositeInpu
 	for (size_t i = 0; i < numBytes / m_nSecParamBytes; ++i)
 	{
 		m_pKeyOps->XOR(oppositeInputKeys.GetArr() + i * m_nSecParamBytes, regularInputKeys.GetArr() + i * m_nSecParamBytes, m_vR.GetArr());
+	}
+}
+
+void HalfGatesPRPServerSharing::copyServerInputKey(uint8_t inputBit, uint8_t permutationBit, size_t targetByteOffset, size_t sourceByteOffset)
+{
+	if (inputBit ^ permutationBit) {
+		// 1-key
+		memcpy(m_vServerKeySndBuf.GetArr() + targetByteOffset, getOppositeServerInputKeys().GetArr() + sourceByteOffset, m_nSecParamBytes);
+	}
+	else {
+		// 0-key
+		memcpy(m_vServerKeySndBuf.GetArr() + targetByteOffset, m_vServerInputKeys.GetArr() + sourceByteOffset, m_nSecParamBytes);
 	}
 }
 

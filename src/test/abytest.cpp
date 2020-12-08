@@ -84,18 +84,19 @@ int main(int argc, char** argv) {
 		//test_psi_scs_circuit(role, (char*) address.c_str(), seclvl, nelements, bitlen,	nthreads, mt_alg, S_SPLUT);
 
 		//Test the Phasing PSI circuit
+		const double epsilon = 1.2;
 		// std::cout << "Testing PSI Phasing circuit in Boolean sharing" << std::endl;
 		// test_phasing_circuit(role, (char*) address.c_str(), port, seclvl, nelements, nelements, bitlen, epsilon, nthreads, mt_alg,
 		// 		S_BOOL, 1, 0, 3);
-		// std::cout << "Testing PSI Phasing circuit in Yao sharing" << std::endl;
-		// test_phasing_circuit(role, (char*) address.c_str(), port, seclvl, nelements, nelements, bitlen, epsilon, nthreads, mt_alg,
-		// 		S_YAO, 1, 0, 3);
+		std::cout << "Testing PSI Phasing circuit in Yao sharing" << std::endl;
+		test_phasing_circuit(role, (char*) address.c_str(), port, seclvl, nelements, nelements, bitlen, epsilon, nthreads, mt_alg,
+		 		S_YAO, 1, 0, 3);
 		//	std::cout << "Testing PSI Phasing circuit in Setup-LUT sharing" << std::endl;
 		//	test_phasing_circuit(role, (char*) address.c_str(), port, seclvl, nelements, nelements, bitlen,	epsilon, nthreads, mt_alg, S_SPLUT, 1, 0, 3);
 
 		//test_lowmc_circuit(role, (char*) address.c_str(), seclvl, nvals, nthreads, mt_alg, S_BOOL, (LowMCParams*) &stp);
 
-		//test_min_eucliden_dist_circuit(role, (char*) address.c_str(), seclvl, nvals, 6, nthreads, mt_alg, S_ARITH, S_YAO);
+		//test_min_eucliden_dist_circuit(role, (char*) address.c_str(), port, seclvl, nvals, 6, nthreads, mt_alg, S_ARITH, S_YAO, ePreCompDefault);
 	}
 
 
@@ -156,10 +157,10 @@ int32_t test_standard_ops(aby_ops_t* test_ops, ABYParty* party, uint32_t bitlen,
 	for (uint32_t r = 0; r < num_test_runs; r++) {
 		for (uint32_t i = 0; i < nops; i++) {
 			Circuit* circ = sharings[test_ops[i].sharing]->GetCircuitBuildRoutine();
-			//a = (uint32_t) rand() % ((uint64_t) 1<<bitlen);
-			//b = (uint32_t) rand() % ((uint64_t) 1<<bitlen);
-			a = (uint32_t)~0;
-			b = (uint32_t)~0;
+			a = (uint32_t) rand() % ((uint64_t) 1<<bitlen);
+			b = (uint32_t) rand() % ((uint64_t) 1<<bitlen);
+			//a = (uint32_t)~0;
+			//b = (uint32_t)~0;
 
 			shra = circ->PutINGate(a, bitlen, SERVER);
 			shrb = circ->PutINGate(b, bitlen, CLIENT);
@@ -220,6 +221,7 @@ int32_t test_standard_ops(aby_ops_t* test_ops, ABYParty* party, uint32_t bitlen,
 				break;
 			case OP_UNIV:
 				op = rand() % TTSIZE;
+				std::cout << "operation: " << op << std::endl;
 				shrres = circ->PutUniversalGate(shra, shrb, op);
 				verify = 0;
 				for(uint32_t j = 0; j < bitlen; j++) {
@@ -247,7 +249,7 @@ int32_t test_standard_ops(aby_ops_t* test_ops, ABYParty* party, uint32_t bitlen,
 			case OP_B2Y:
 				shrres = circ->PutADDGate(shra, shrb);
 				yc = sharings[S_YAO]->GetCircuitBuildRoutine();
-				shrres = yc->PutB2YGate(shrres);
+				shrres = yc->PutB2YGate(shrres); // shrres
 				//shrres = yc->PutADDGate(shrres, shrres);
 				shrres = yc->PutMULGate(shrres, shrres);
 				circ = yc;

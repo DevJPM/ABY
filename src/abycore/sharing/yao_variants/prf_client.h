@@ -33,7 +33,7 @@ private:
 
 	std::vector<uint64_t> m_vXorIds;
 	std::vector<uint64_t> m_vAndIds;
-	uint64_t m_nWireCounter;
+	uint64_t m_nWireCounter = 0;
 };
 
 #endif

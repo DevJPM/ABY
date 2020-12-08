@@ -10,10 +10,10 @@
 #include <iostream>
 #include <iomanip>
 
-constexpr size_t mainEvaluatingWidthXor = 1;
-constexpr size_t mainEvaluatingWidthAnd = 1;
-constexpr size_t mainGarblingWidthAnd = 1;
-constexpr size_t mainGarblingWidthXor = 1;
+constexpr size_t mainEvaluatingWidthXor = 4;
+constexpr size_t mainEvaluatingWidthAnd = 4;
+constexpr size_t mainGarblingWidthAnd = 2;
+constexpr size_t mainGarblingWidthXor = 3;
 
 static void PrintKey(__m128i data) {
 	uint8_t key[16];
@@ -87,6 +87,7 @@ void PRFXorLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 			data[2 * w + 0] = _mm_set_epi64x(lpbit, m_vWireIds[currentGateIdx] + currentOffset);
 			data[2 * w + 1] = _mm_set_epi64x(rpbit, m_vWireIds[currentGateIdx] + currentOffset);
 
+			/*
 			std::cout << std::endl << std::endl;
 
 			
@@ -96,6 +97,7 @@ void PRFXorLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 			std::cout << "rParent: ";
 			PrintKey(parentKeys[2 * w + 1]);
 			std::cout << std::endl;
+			*/
 			
 
 			targetGateKey[w] = currentGate->gs.yval + 16 * currentOffset;
@@ -113,7 +115,7 @@ void PRFXorLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 			}
 			gtptr += 16;
 
-			std::cout << "Bits: " << (uint16_t)lpbit << (uint16_t)rpbit << std::endl;
+			//std::cout << "Bits: " << (uint16_t)lpbit << (uint16_t)rpbit << std::endl;
 
 			currentOffset++;
 
@@ -193,28 +195,37 @@ void PRFXorLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 		for (size_t w = 0; w < width; ++w)
 		{
 			
+			/*
 			std::cout << "Pre-Mask:   ";
 			PrintKey(data[2 * w + 0]);
 			std::cout << std::endl;
+			*/
 			
 			__m128i temp = _mm_xor_si128(data[2 * w + 0], finalMask[w]);
 			
+			/*
 			std::cout << "Post-Mask:  ";
 			PrintKey(temp);
 			std::cout << std::endl;
+			*/
 			
 			if(doRXor[w])
 				temp = _mm_xor_si128(temp, data[2 * w + 1]);
 			
+			/*
 			std::cout << "Post-XOR:   ";
 			PrintKey(temp);
 			std::cout << std::endl;
+			*/
 			
 			_mm_storeu_si128((__m128i*)(targetGateKey[w]), temp);
 			targetGateKey[w][15] = (targetGateKey[w][15] & 0xFE) | opbit[w]; // clear out the permutation bit and then set it
+			
+			/*
 			std::cout << "Stored Key: ";
 			PrintKey(_mm_loadu_si128((__m128i*)targetGateKey[w]));
 			std::cout << std::endl;
+			*/
 		}
 	}
 }
@@ -272,17 +283,8 @@ void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			rpbit[w] = rightParent->gs.yinput.pi[currentOffset];
 			currentGate->gs.yinput.pi[currentOffset] = lpbit ^ rpbit[w];
 
-			//parentKeys[3 * w + 0] = _mm_loadu_si128((__m128i*)leftParentKey0);
-			//parentKeys[3 * w + 1] = _mm_loadu_si128((__m128i*)leftParentKey1);
-
-			if (!lpbit) {
-				parentKeys[3 * w + 0] = _mm_loadu_si128((__m128i*)leftParentKey0);
-				parentKeys[3 * w + 1] = _mm_loadu_si128((__m128i*)leftParentKey1);
-			}
-			else {
-				parentKeys[3 * w + 1] = _mm_loadu_si128((__m128i*)leftParentKey0);
-				parentKeys[3 * w + 0] = _mm_loadu_si128((__m128i*)leftParentKey1);
-			}
+			parentKeys[3 * w + 0] = _mm_loadu_si128((__m128i*)leftParentKey0);
+			parentKeys[3 * w + 1] = _mm_loadu_si128((__m128i*)leftParentKey1);
 
 			if (rpbit[w]) {
 				parentKeys[3 * w + 2] = _mm_loadu_si128((__m128i*)rightParentKey0);
@@ -298,7 +300,7 @@ void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			parentKeys[3 * w + 2] = _mm_and_si128(signalBitCleaner, parentKeys[3 * w + 2]);
 			rkey[w] = _mm_and_si128(signalBitCleaner, rkey[w]);
 				
-
+			/*
 			std::cout << std::endl << std::endl;
 
 			
@@ -316,6 +318,7 @@ void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			std::cout << "rParentD: ";
 			PrintKey(rkey[w]);
 			std::cout << std::endl;
+			*/
 			
 
 			data[3 * w + 0] = _mm_set_epi64x(lpbit, m_vWireIds[currentGateIdx] + currentOffset);
@@ -402,14 +405,15 @@ void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 
 		for (size_t w = 0; w < width; ++w)
 		{
-			
+			/*
 			std::cout << "Left Delta Cipher:  ";
 			PrintKey(data[3 * w + 0]);
 			std::cout << std::endl;
 			std::cout << "Right Delta Cipher: ";
 			PrintKey(data[3 * w + 1]);
 			std::cout << std::endl;
-			
+			*/
+
 			__m128i delta = _mm_xor_si128(data[3 * w + 0], data[3 * w + 1]);
 
 			__m128i rtkey0, tableEntry;
@@ -424,18 +428,22 @@ void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			}
 			_mm_storeu_si128((__m128i*)gtptr, tableEntry);
 			gtptr += 16;
+			/*
 			std::cout << "Right Trans Key:    ";
 			PrintKey(rtkey0);
 			std::cout << std::endl;
+			*/
 			__m128i outkey0 = _mm_xor_si128(data[3 * w + 0], rtkey0);
 			__m128i outkey1 = _mm_xor_si128(data[3 * w + 1], rtkey0);
 			_mm_storeu_si128((__m128i*)targetGateKey0[w], outkey0);
 			_mm_storeu_si128((__m128i*)targetGateKey1[w], outkey1);
+			/*
 			std::cout << "Stored Keys:" << std::endl;
 			PrintKey(_mm_loadu_si128((__m128i*)targetGateKey0[w]));
 			std::cout << std::endl;
 			PrintKey(_mm_loadu_si128((__m128i*)targetGateKey1[w]));
 			std::cout << std::endl;
+			*/
 		}
 	}
 }
@@ -494,6 +502,7 @@ void PRFAndLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 			parentKeys[2 * w + 0] = _mm_and_si128(signalBitCleaner, parentKeys[2 * w + 0]);
 			parentKeys[2 * w + 1] = _mm_and_si128(signalBitCleaner, parentKeys[2 * w + 1]);
 
+			/*
 			std::cout << std::endl << std::endl;
 
 			
@@ -502,11 +511,14 @@ void PRFAndLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 			std::cout << std::endl;
 			PrintKey(parentKeys[2 * w + 1]);
 			std::cout << std::endl;
-			
+			*/
+
 
 			const uint8_t lpbit = leftParentKey[15] & 0x01;
 			const uint8_t rpbit = rightParentKey[15] & 0x01;
 			const uint8_t combined_bits = (lpbit << 1) | rpbit;
+
+			//std::cout << "parent bits: " << (uint16_t)lpbit << (uint16_t)rpbit << std::endl;
 
 			data[2 * w + 0] = _mm_set_epi64x(combined_bits, m_vWireIds[currentGateIdx] + currentOffset);
 			data[2 * w + 1] = _mm_set_epi64x(combined_bits, m_vWireIds[currentGateIdx] + currentOffset);
@@ -550,7 +562,7 @@ void PRFAndLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 				break;
 			}
 
-			std::cout << "Combined bits: " << (uint16_t) combined_bits << std::endl;
+			//std::cout << "Combined bits: " << (uint16_t) combined_bits << std::endl;
 
 			currentOffset++;
 
@@ -630,17 +642,21 @@ void PRFAndLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 		for (size_t w = 0; w < width; ++w)
 		{
 			__m128i temp = _mm_xor_si128(data[2 * w + 0], data[2 * w + 1]);
+			/*
 			std::cout << "XOR Key:" << std::endl;
 			PrintKey(temp);
 			std::cout << std::endl;
+			*/
 			__m128i mask = _mm_set_epi8(0xFD, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF);
 			temp = _mm_and_si128(mask, temp);
 			temp = _mm_xor_si128(temp, finalMask[w]);
 			_mm_storeu_si128((__m128i*)(targetGateKey[w]), temp);
 			targetGateKey[w][15] ^= opbit[w]; // clear out the permutation bit and then set it
+			/*
 			std::cout << "Stored Key:" << std::endl;
 			PrintKey(_mm_loadu_si128((__m128i*)targetGateKey[w]));
 			std::cout << std::endl;
+			*/
 		}
 	}
 }
@@ -733,6 +749,7 @@ void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			parentKeys[4 * w + 2] = _mm_and_si128(signalBitCleaner, parentKeys[4 * w + 2]);
 			parentKeys[4 * w + 3] = _mm_and_si128(signalBitCleaner, parentKeys[4 * w + 3]);
 
+			/*
 			std::cout << std::endl << std::endl;
 
 			
@@ -746,7 +763,9 @@ void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			PrintKey(parentKeys[4 * w + 3]);
 			std::cout << std::endl;
 
-			std::cout << "combined bits: " << (uint16_t)combined_bits[w] << std::endl;
+			std::cout << "parent bits: " << (uint16_t)lpbit << (uint16_t)rpbit << std::endl;
+			std::cout << "1 indicator: " << (uint16_t)combined_bits[w] << std::endl;
+			*/
 			
 
 
@@ -847,7 +866,7 @@ void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			const __m128i key2 = _mm_xor_si128(data[8 * w + 2], data[8 * w + 5]);
 			const __m128i key3 = _mm_xor_si128(data[8 * w + 3], data[8 * w + 7]);
 
-			
+			/*
 			std::cout << "XOR Keys:" << std::endl;
 			PrintKey(key0);
 			std::cout << std::endl;
@@ -857,6 +876,7 @@ void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			std::cout << std::endl;
 			PrintKey(key3);
 			std::cout << std::endl;
+			*/
 			
 
 			// TODO: clear bit
@@ -875,6 +895,7 @@ void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			targetGateKey1[w][15] &= 0xFC;//0xFD;
 			//targetGateKey1[w][15] ^= opbit[w];
 
+			/*
 			std::cout << "opbit: " << (uint16_t)opbit[w] << std::endl;
 
 			std::cout << "Stored Key0: ";
@@ -883,6 +904,7 @@ void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			std::cout << "Stored Key1: ";
 			PrintKey(_mm_loadu_si128((__m128i*)targetGateKey1[w]));
 			std::cout << std::endl;
+			*/
 
 			uint8_t bit0 = (_mm_extract_epi8(key0, 15) & 0x01) ^ opbit[w];
 			uint8_t bit1 = (_mm_extract_epi8(key1, 15) & 0x01) ^ opbit[w];

@@ -85,18 +85,25 @@ protected:
 	virtual bool evaluateANDGate(ABYSetup* setup, GATE* gate) = 0;
 	virtual bool evaluateUNIVGate(GATE* gate) = 0;
 	virtual bool evaluateConstantGate(GATE* gate) = 0;
+	virtual bool evaluateInversionGate(GATE* gate) = 0;
 
 	virtual void createOppositeInputKeys(CBitVector& oppositeInputKeys, CBitVector& reglarInputKeys, size_t numKeys) =0;
+	virtual void copyServerInputKey(uint8_t inputBit, uint8_t permutationBit, size_t targetByteOffset, size_t sourceByteOffset) = 0;
+	virtual uint8_t computePermutationValueFromBoolConv(uint8_t inputBit, uint8_t permutationBit) = 0;
+	virtual void prepareInputkeysConversion(CBitVector& keys, size_t offset, uint8_t permutationBit) {}
+
 
 	virtual void prepareGarblingSpecificSetup() = 0;
 	virtual void resetGarblingSpecific() = 0;
 
 	const std::vector<GATE*>& getAndQueue() const { return m_andQueue; }
 	const std::vector<GATE*>& getXorQueue() const { return m_xorQueue; }
+	const CBitVector& getOppositeServerInputKeys() const { return m_vOppositeServerInputKeys; }
 
 	// this is only for AND gates
 	uint64_t m_nGarbledTableSndCtr;
 	
+	CBitVector m_vServerKeySndBuf; /**< Server Key Sender Buffer*/
 private:
 	std::vector<GATE*> m_andQueue; /**< Pointer to the current layer's AND gates, one entry per garbled table (i.e. one per bit which means >1 per SIMD AND)*/
 	std::vector<GATE*> m_xorQueue;
@@ -112,7 +119,6 @@ private:
 	uint32_t m_nClientInputKexIdx; /**< Client __________*/
 	uint32_t m_nClientInputKeyCtr; /**< Client __________*/
 
-	CBitVector m_vServerKeySndBuf; /**< Server Key Sender Buffer*/
 	std::vector<CBitVector> m_vClientKeySndBuf; /**< Client Key Sender Buffer*/
 	CBitVector m_vClientROTRcvBuf; /**< Client ______________*/
 

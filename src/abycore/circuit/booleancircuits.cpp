@@ -1486,6 +1486,8 @@ std::vector<uint32_t> BooleanCircuit::PutSUBGate(std::vector<uint32_t> a, std::v
 		b.resize(max_bitlength, zerogate);
 	}
 
+	//PadWithLeadingZeros(a, b);
+
 	uint32_t bitlen = a.size();
 	std::vector<uint32_t> C(bitlen);
 	uint32_t i, ainvNbxc, ainvxc, bxc;
@@ -1496,6 +1498,7 @@ std::vector<uint32_t> BooleanCircuit::PutSUBGate(std::vector<uint32_t> a, std::v
 		ainv[i] = PutINVGate(a[i]);
 	}
 
+	//C[0] = PutXORGate(a[0], a[0]);
 	C[0] = PutConstantGate(0, m_vGates[a[0]].nvals);
 
 	for (i = 0; i < bitlen - 1; i++) {

@@ -20,6 +20,9 @@ protected:
 
 	bool evaluateConstantGate(GATE* gate) override;
 	void createOppositeInputKeys(CBitVector& oppositeInputKeys, CBitVector& reglarInputKeys, size_t numKeys) override;
+	void copyServerInputKey(uint8_t inputBit, uint8_t permutationBit, size_t targetByteOffset, size_t sourceByteOffset) override;
+	uint8_t computePermutationValueFromBoolConv(uint8_t inputBit, uint8_t permutationBit) override { return inputBit; }
+	void prepareInputkeysConversion(CBitVector& keys, size_t offset, uint8_t permutationBit) override { keys.XORByte(offset + m_nSecParamBytes - 1, permutationBit); }
 	void prepareGarblingSpecificSetup() override {}
 
 	void evaluateDeferredXORGates(size_t numWires) override;
@@ -27,6 +30,7 @@ protected:
 	bool evaluateXORGate(GATE* gate) override { m_vXorIds.push_back(m_nWireCounter); m_nWireCounter += gate->nvals; return false; }
 	bool evaluateANDGate(ABYSetup*, GATE* gate) override { m_vAndIds.push_back(m_nWireCounter); m_nWireCounter += gate->nvals; return false; }
 	bool evaluateUNIVGate(GATE* gate) override;
+	bool evaluateInversionGate(GATE* gate) override;
 
 	void resetGarblingSpecific() override { m_vXorIds.clear(); m_vAndIds.clear(); m_nWireCounter = 0; }
 private:
@@ -38,11 +42,11 @@ private:
 	std::unique_ptr<AESProcessor> m_andAESProcessor;
 
 	std::unique_ptr<FixedKeyProvider> m_andPiBitProvider;
-	uint64_t piCounter;
+	uint64_t piCounter=0;
 
 	std::vector<uint64_t> m_vXorIds;
 	std::vector<uint64_t> m_vAndIds;
-	uint64_t m_nWireCounter;
+	uint64_t m_nWireCounter =0;
 };
 
 #endif

@@ -610,6 +610,7 @@ void YaoClientSharing::AssignServerInputKeys() {
 	m_nServerInBitCtr = 0;
 }
 
+//#define DEBUGYAOCLIENT
 /* Assign the received server input keys to the pushed back gates in this round */
 void YaoClientSharing::AssignClientInputKeys() {
 	GATE* gate;
@@ -645,6 +646,7 @@ void YaoClientSharing::AssignClientInputKeys() {
 
 	m_nClientRcvKeyCtr = 0;
 }
+//#undef DEBUGYAOCLIENT
 
 void YaoClientSharing::InstantiateGate(GATE* gate) {
 	gate->instantiated = true;

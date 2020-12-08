@@ -17,6 +17,12 @@ void PRFServerSharing::InitServer()
 
 void PRFServerSharing::choosePi(GATE* gate)
 {
+	m_cCrypto->gen_rnd(gate->gs.yinput.pi, gate->nvals);
+	for (size_t i = 0; i < gate->nvals; ++i)
+		gate->gs.yinput.pi[i] &= 0x01;
+
+	return;
+
 	uint8_t buffer[64];
 	__m128i data[4];
 	uint8_t* piPtr = gate->gs.yinput.pi;
@@ -76,9 +82,25 @@ void PRFServerSharing::createOppositeInputKeys(CBitVector& oppositeInputKeys, CB
 	//oppositeInputKeys.AttachBuf(buffer, numBytes);
 	oppositeInputKeys.Create(numBytes * 8, m_cCrypto);
 	for (uint32_t i = 0; i < numKeys; i++) {
+		//oppositeInputKeys.XORByte((i + 1) * m_nSecParamBytes - 1, 0x01);
 		oppositeInputKeys.ORByte((i + 1) * m_nSecParamBytes - 1, 0x01);
 		assert(oppositeInputKeys.GetArr()[(i + 1) * m_nSecParamBytes - 1] & 0x01);
 		assert(!(regularInputKeys.GetArr()[(i + 1) * m_nSecParamBytes - 1] & 0x01));
+	}
+}
+
+void PRFServerSharing::copyServerInputKey(uint8_t inputBit, uint8_t permutationBit, size_t targetByteOffset, size_t sourceByteOffset)
+{
+	if (inputBit) {
+		// send 1 key
+		memcpy(m_vServerKeySndBuf.GetArr() + targetByteOffset, getOppositeServerInputKeys().GetArr() + sourceByteOffset, m_nSecParamBytes);
+		m_vServerKeySndBuf.GetArr()[targetByteOffset + m_nSecParamBytes - 1] = (m_vServerKeySndBuf.GetArr()[sourceByteOffset + m_nSecParamBytes - 1] & 0xFE) | !permutationBit;
+
+	}
+	else {
+		//input bit at position is 0 -> set 0 key
+		memcpy(m_vServerKeySndBuf.GetArr() + targetByteOffset, m_vServerInputKeys.GetArr() + sourceByteOffset, m_nSecParamBytes);
+		m_vServerKeySndBuf.GetArr()[targetByteOffset + m_nSecParamBytes - 1] = (m_vServerKeySndBuf.GetArr()[sourceByteOffset + m_nSecParamBytes - 1] & 0xFE) | permutationBit;
 	}
 }
 
@@ -162,14 +184,42 @@ bool PRFServerSharing::evaluateUNIVGate(GATE* gate)
 	return true;
 }
 
+bool PRFServerSharing::evaluateInversionGate(GATE* gate)
+{
+	uint32_t parentid = gate->ingates.inputs.parent;
+	InstantiateGate(gate);
+	assert((gate - m_vGates.data()) > parentid);
+	GATE* parentGate = &m_vGates[parentid];
+	memcpy(gate->gs.yinput.outKey[1], parentGate->gs.yinput.outKey[0], m_nSecParamBytes * gate->nvals);
+	memcpy(gate->gs.yinput.outKey[0], parentGate->gs.yinput.outKey[1], m_nSecParamBytes * gate->nvals);
+
+	for (uint32_t i = 0; i < gate->nvals; i++) {
+		gate->gs.yinput.pi[i] = parentGate->gs.yinput.pi[i] ^ 0x01;
+
+		assert(gate->gs.yinput.pi[i] < 2 && parentGate->gs.yinput.pi[i] < 2);
+
+	}
+	UsedGate(parentid);
+
+	return true;
+}
+
+//#define DEBUGYAOSERVER
 void PRFServerSharing::GarbleUniversalGate(GATE* ggate, uint32_t pos, GATE* gleft, GATE* gright, uint32_t ttable) {
 	BYTE* univ_table = m_vUniversalGateTable.GetArr() + m_nUniversalGateTableCtr * KEYS_PER_UNIV_GATE_IN_TABLE * m_nSecParamBytes;
+	uint8_t lpbit = gleft->gs.yinput.pi[pos];
+	uint8_t rpbit = gright->gs.yinput.pi[pos];
 	uint32_t ttid = (gleft->gs.yinput.pi[pos] << 1) + gright->gs.yinput.pi[pos];
 
 	assert(gright->instantiated && gleft->instantiated);
 
-	uint8_t* bLMaskBuf[2] = { gleft->gs.yinput.outKey[0] + pos * m_nSecParamBytes, gleft->gs.yinput.outKey[1] + pos * m_nSecParamBytes };
-	uint8_t* bRMaskBuf[2] = { gright->gs.yinput.outKey[0] + pos * m_nSecParamBytes, gright->gs.yinput.outKey[1] + pos * m_nSecParamBytes };
+	uint8_t* bLMaskBuf[2] = { gleft->gs.yinput.outKey[lpbit] + pos * m_nSecParamBytes, gleft->gs.yinput.outKey[!lpbit] + pos * m_nSecParamBytes };
+	uint8_t* bRMaskBuf[2] = { gright->gs.yinput.outKey[rpbit] + pos * m_nSecParamBytes, gright->gs.yinput.outKey[!rpbit] + pos * m_nSecParamBytes };
+
+	bLMaskBuf[0][m_nSecParamBytes - 1] &= 0xFE;
+	bLMaskBuf[1][m_nSecParamBytes - 1] &= 0xFE;
+	bRMaskBuf[0][m_nSecParamBytes - 1] &= 0xFE;
+	bRMaskBuf[1][m_nSecParamBytes - 1] &= 0xFE;
 
 	BYTE* outkey[2];
 	outkey[0] = ggate->gs.yinput.outKey[0] + pos * m_nSecParamBytes;
@@ -177,26 +227,36 @@ void PRFServerSharing::GarbleUniversalGate(GATE* ggate, uint32_t pos, GATE* glef
 
 	assert(((uint64_t*)m_bZeroBuf)[0] == 0);
 	//GRR: Encryption with both original keys of a zero-string becomes the key on the output wire of the gate
+
+	//GRR: Encryption with both original keys of a zero-string becomes the key on the output wire of the gate
 	EncryptWireGRR3(outkey[0], m_bZeroBuf, bLMaskBuf[0], bRMaskBuf[0], 0);
 
 	//Sort the values according to the permutation bit and precompute the second wire key
 	BYTE kbit = outkey[0][m_nSecParamBytes - 1] & 0x01;
 	ggate->gs.yinput.pi[pos] = ((ttable >> ttid) & 0x01) ^ kbit;//((kbit^1) & (ttid == 3)) | (kbit & (ttid != 3));
 
+	memcpy(outkey[kbit], outkey[0], m_nSecParamBytes);
+
+	m_cCrypto->gen_rnd(outkey[!kbit], m_nSecParamBytes);
+	outkey[!kbit][m_nSecParamBytes - 1] = (outkey[!kbit][m_nSecParamBytes - 1] & 0xFE) | (1-(outkey[kbit][m_nSecParamBytes - 1] & 0x01));
+
 #ifdef DEBUGYAOSERVER
+	std::cout << "Outkey0: ";
+	PrintKey(outkey[0]);
+	std::cout << "Outkey1: ";
+	PrintKey(outkey[1]);
+	std::cout << std::endl;
+
 	std::cout << " encrypting : ";
 	PrintKey(m_bZeroBuf);
 	std::cout << " using: ";
-	PrintKey(m_bLMaskBuf[0]);
+	PrintKey(bLMaskBuf[0]);
 	std::cout << " (" << (uint32_t)gleft->gs.yinput.pi[pos] << ") and : ";
-	PrintKey(m_bRMaskBuf[0]);
+	PrintKey(bRMaskBuf[0]);
 	std::cout << " (" << (uint32_t)gright->gs.yinput.pi[pos] << ") to : ";
-	PrintKey(m_bOKeyBuf[0]);
+	PrintKey(outkey[0]);
 	std::cout << std::endl;
 #endif
-	memcpy(outkey[kbit], outkey[0], m_nSecParamBytes);
-	m_cCrypto->gen_rnd(outkey[kbit ^ 1], m_nSecParamBytes);
-
 	for (uint32_t i = 1, keyid; i < 4; i++, univ_table += m_nSecParamBytes) {
 		keyid = ((ttable >> (ttid ^ i)) & 0x01) ^ ggate->gs.yinput.pi[pos];
 		assert(keyid < 2);
@@ -205,14 +265,15 @@ void PRFServerSharing::GarbleUniversalGate(GATE* ggate, uint32_t pos, GATE* glef
 		EncryptWireGRR3(univ_table, outkey[keyid], bLMaskBuf[i >> 1], bRMaskBuf[i & 0x01], i);
 #ifdef DEBUGYAOSERVER
 		std::cout << " encrypting : ";
-		PrintKey(m_bOKeyBuf[0]); // TODO: check that we print the right value
+		PrintKey(outkey[keyid]); // TODO: check that we print the right value
 		std::cout << " using: ";
-		PrintKey(m_bLMaskBuf[i >> 1]);
+		PrintKey(bLMaskBuf[i >> 1]);
 		std::cout << " (" << (uint32_t)gleft->gs.yinput.pi[pos] << ") and : ";
-		PrintKey(m_bRMaskBuf[i & 0x01]);
+		PrintKey(bRMaskBuf[i & 0x01]);
 		std::cout << " (" << (uint32_t)gright->gs.yinput.pi[pos] << ") to : ";
 		PrintKey(univ_table); // TODO: check that we print the right value
 		std::cout << std::endl;
 #endif
 	}
+//#undef DEBUGYAOSERVER
 }

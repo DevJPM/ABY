@@ -66,6 +66,7 @@ bool PRFClientSharing::evaluateUNIVGate(GATE* gate) {
 	return true;
 }
 
+//#define DEBUGYAOCLIENT
 void PRFClientSharing::EvaluateUniversalGate(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright)
 {
 	BYTE* lkey, * rkey, * okey;
@@ -76,6 +77,9 @@ void PRFClientSharing::EvaluateUniversalGate(GATE* gate, uint32_t pos, GATE* gle
 
 	id = (lkey[m_nSecParamBytes - 1] & 0x01) << 1;
 	id += (rkey[m_nSecParamBytes - 1] & 0x01);
+
+	lkey[m_nSecParamBytes - 1] &= 0xFE;
+	rkey[m_nSecParamBytes - 1] &= 0xFE;
 
 	//encrypt_wire((BYTE*)gate->gs.val, m_vGarbledTables.GetArr() + BYTES_SSP * (4 * andctr + id), pleft, pright, id, m_kGarble, key_buf);
 	if (id == 0) {
@@ -103,6 +107,7 @@ void PRFClientSharing::EvaluateUniversalGate(GATE* gate, uint32_t pos, GATE* gle
 	std::cout << std::endl;
 #endif
 }
+//#undef DEBUGYAOCLIENT
 
 void PRFClientSharing::InitClient()
 {

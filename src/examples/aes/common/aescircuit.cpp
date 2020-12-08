@@ -23,7 +23,6 @@
 static uint32_t* pos_even;
 static uint32_t* pos_odd;
 
-
 int32_t test_aes_circuit(e_role role, const std::string& address, uint16_t port, seclvl seclvl, uint32_t nvals, uint32_t nthreads,
 		e_mt_gen_alg mt_alg, e_sharing sharing, [[maybe_unused]] bool verbose, bool use_vec_ands, bool expand_in_sfe, bool client_only) {
 	uint32_t bitlen = 32;
@@ -49,7 +48,12 @@ int32_t test_aes_circuit(e_role role, const std::string& address, uint16_t port,
 	verify.Create(AES_BITS * nvals);
 	key.CreateBytes(AES_EXP_KEY_BYTES);
 
-	uint8_t aes_test_key[AES_KEY_BYTES];
+	uint8_t aes_test_key[AES_KEY_BYTES];// = { 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c }; // Test vector from FIPS 197
+	uint8_t aes_test_input[AES_BYTES];// = { 0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34 };
+	/*for (size_t i = 0; i < nvals; ++i) {
+		input.Copy(aes_test_input, i*AES_BYTES, AES_BYTES);
+	}*/
+	
 	srand(7438);
 	for(uint32_t i = 0; i < AES_KEY_BYTES; i++) {
 		aes_test_key[i] = (uint8_t) (rand() % 256);

@@ -25,8 +25,11 @@ protected:
 	bool evaluateANDGate(ABYSetup* setup, GATE* gate) override { return false; }
 	bool evaluateUNIVGate(GATE* gate) override;
 	bool evaluateConstantGate(GATE* gate) override;
+	bool evaluateInversionGate(GATE* gate) override;
 	void resetGarblingSpecific() override { m_vR.delCBitVector(); }
 	void createOppositeInputKeys(CBitVector& oppositeInputKeys, CBitVector& reglarInputKeys, size_t numKeys) override;
+	void copyServerInputKey(uint8_t inputBit, uint8_t permutationBit, size_t targetByteOffset, size_t sourceByteOffset) override;
+	uint8_t computePermutationValueFromBoolConv(uint8_t inputBit, uint8_t permutationBit) override { return inputBit ^ permutationBit; }
 private:
 	void InitServer();
 	void GarbleUniversalGate(GATE* ggate, uint32_t pos, GATE* gleft, GATE* gright, uint32_t ttable);
