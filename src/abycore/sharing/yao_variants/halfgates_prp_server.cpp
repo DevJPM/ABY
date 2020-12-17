@@ -4,6 +4,8 @@
 #include "../aes_processors/vaes_halfgate_processors.h"
 #include "../cpu_features/include/cpuinfo_x86.h"
 
+#include <emmintrin.h>
+
 static const cpu_features::X86Features CPU_FEATURES = cpu_features::GetX86Info().features;
 
 void HalfGatesPRPServerSharing::prepareGarblingSpecificSetup() {
@@ -105,6 +107,11 @@ void HalfGatesPRPServerSharing::evaluateDeferredANDGates(ABYSetup* setup, size_t
 	}
 }
 
+static void ltkeyxor(BYTE* out, BYTE* ina, BYTE* inb) {
+	(((uint64_t*)(out))[0] = ((uint64_t*)(ina))[0] ^ ((uint64_t*)(inb))[0]);
+	(((uint64_t*)(out))[1] = ((uint64_t*)(ina))[1] ^ ((uint64_t*)(inb))[1]);
+};
+
 bool HalfGatesPRPServerSharing::evaluateXORGate(GATE* gate)
 {
 	uint32_t idleft = gate->ingates.inputs.twin.left; //gate->gs.ginput.left;
@@ -119,15 +126,30 @@ bool HalfGatesPRPServerSharing::evaluateXORGate(GATE* gate)
 
 	BYTE* gpi = gate->gs.yinput.pi;
 	BYTE* gkey[] = { gate->gs.yinput.outKey[0], gate->gs.yinput.outKey[1] };
+	assert(m_nSecParamBytes == 16);
+
+	const __m128i R = _mm_loadu_si128((__m128i*)m_vR.GetArr());
 
 #ifdef GATE_INST_FLAG
 	assert(m_vGates[idleft].instantiated);
 	assert(m_vGates[idright].instantiated);
 #endif
-	for (uint32_t g = 0; g < gate->nvals; g++, gpi++, lpi++, rpi++, lkey += m_nSecParamBytes, rkey += m_nSecParamBytes, gkey[0] += m_nSecParamBytes, gkey[1] += m_nSecParamBytes) {
+	for (uint32_t g = 0; g < gate->nvals; g++, gpi++, lpi++, rpi++, lkey += 16, rkey += 16, gkey[0] += 16, gkey[1] += 16) {
 		*gpi = *lpi ^ *rpi;
-		m_pKeyOps->XOR(gkey[0], lkey, rkey);
-		m_pKeyOps->XOR(gkey[1], gkey[0], m_vR.GetArr());
+		//ltkeyxor(gkey[0], lkey, rkey);
+		//ltkeyxor(gkey[1], gkey[0], m_vR.GetArr());
+
+		__m128i llkey = _mm_loadu_si128((__m128i*)lkey);
+		__m128i lrkey = _mm_loadu_si128((__m128i*)rkey);
+
+		__m128i okey0 = _mm_xor_si128(llkey, lrkey);
+		_mm_storeu_si128((__m128i*)gkey[0], okey0);
+		__m128i okey1 = _mm_xor_si128(okey0, R);
+		_mm_storeu_si128((__m128i*)gkey[1], okey1);
+
+
+		//m_pKeyOps->XOR(gkey[0], lkey, rkey);
+		//m_pKeyOps->XOR(gkey[1], gkey[0], m_vR.GetArr());
 		assert(*gpi < 2);
 	}
 
@@ -229,13 +251,8 @@ void HalfGatesPRPServerSharing::GarbleUniversalGate(GATE* ggate, uint32_t pos, G
 	m_pKeyOps->XOR(outkey[1], outkey[0], m_vR.GetArr());
 }
 
-void HalfGatesPRPServerSharing::InitServer()
+std::unique_ptr<AESProcessorHalfGateGarbling> HalfGatesPRPServerSharing::provideGarblingProcessor() const
 {
-	m_bLMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
-	m_bLMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
-	m_bRMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
-	m_bRMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
-
 	if (m_nSecParamBytes != 16)
 	{
 		std::cerr << "unsupported security parameter." << std::endl;
@@ -243,14 +260,30 @@ void HalfGatesPRPServerSharing::InitServer()
 	}
 	else
 	{
-		if (CPU_FEATURES.vaes && CPU_FEATURES.avx512f)
-			m_aesProcessor = std::make_unique<FixedKeyLTGarblingVaesProcessor>(getAndQueue(), m_vGates);
+		if (ENABLE_VAES && CPU_FEATURES.vaes && CPU_FEATURES.avx512f && CPU_FEATURES.avx512bw && CPU_FEATURES.avx512vl) {
+			if (ENABLE_HYBRID) {
+				return std::make_unique<HybridHalfgateGarblingProcessor<FixedKeyLTGarblingVaesProcessor, FixedKeyLTGarblingAesniProcessor>>(getAndQueue(), m_vGates);
+			}
+			else {
+				return std::make_unique<FixedKeyLTGarblingVaesProcessor>(getAndQueue(), m_vGates);
+			}
+		}	
 		else if (CPU_FEATURES.aes && CPU_FEATURES.sse4_1)
-			m_aesProcessor = std::make_unique<FixedKeyLTGarblingAesniProcessor>(getAndQueue(), m_vGates);
+			return std::make_unique<FixedKeyLTGarblingAesniProcessor>(getAndQueue(), m_vGates);
 		else
 		{
 			std::cerr << "unsupported host CPU." << std::endl;
 			assert(false);
 		}
 	}
+}
+
+void HalfGatesPRPServerSharing::InitServer()
+{
+	m_bLMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
+	m_bLMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
+	m_bRMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
+	m_bRMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
+
+	m_aesProcessor = provideGarblingProcessor();
 }

@@ -1,14 +1,45 @@
 #include "prf_server.h"
 #include "../../aby/abysetup.h"
 #include "../aes_processors/aesni_prf_processors.h"
+#include "../aes_processors/vaes_prf_processors.h"
+#include "../cpu_features/include/cpuinfo_x86.h"
+
+static const cpu_features::X86Features CPU_FEATURES = cpu_features::GetX86Info().features;
 #include <wmmintrin.h>
 
 void PRFServerSharing::InitServer()
 {
 	piCounter = 0;
 
-	m_xorAESProcessor = std::make_unique<PRFXorLTGarblingAesniProcessor>(getXorQueue(), m_vGates, m_vXorIds);
-	m_andAESProcessor = std::make_unique<PRFAndLTGarblingAesniProcessor>(getAndQueue(), m_vGates, m_vAndIds);
+	if (m_nSecParamBytes != 16)
+	{
+		std::cerr << "unsupported security parameter." << std::endl;
+		assert(false);
+	}
+	else
+	{
+		if (ENABLE_VAES && CPU_FEATURES.vaes && CPU_FEATURES.avx512f && CPU_FEATURES.avx512bitalg && CPU_FEATURES.avx512bw && CPU_FEATURES.avx512vl) {
+			if (ENABLE_HYBRID) {
+				m_xorAESProcessor = std::make_unique<HybridPRFProcessor<PRFXorLTGarblingVaesProcessor, PRFXorLTGarblingAesniProcessor>>(getXorQueue(), m_vGates, m_vXorIds);
+				m_andAESProcessor = std::make_unique<HybridPRFProcessor<PRFAndLTGarblingVaesProcessor, PRFAndLTGarblingAesniProcessor>>(getAndQueue(), m_vGates, m_vAndIds);
+			}
+			else {
+				m_xorAESProcessor = std::make_unique<PRFXorLTGarblingVaesProcessor>(getXorQueue(), m_vGates, m_vXorIds);
+				m_andAESProcessor = std::make_unique<PRFAndLTGarblingVaesProcessor>(getAndQueue(), m_vGates, m_vAndIds);
+			}
+		}
+		else if (CPU_FEATURES.aes && CPU_FEATURES.sse4_1) {
+			m_xorAESProcessor = std::make_unique<PRFXorLTGarblingAesniProcessor>(getXorQueue(), m_vGates, m_vXorIds);
+			m_andAESProcessor = std::make_unique<PRFAndLTGarblingAesniProcessor>(getAndQueue(), m_vGates, m_vAndIds);
+		}
+		else
+		{
+			std::cerr << "unsupported host CPU." << std::endl;
+			assert(false);
+		}
+	}
+
+	
 
 	CBitVector piKey;
 	piKey.Create(128, m_cCrypto);

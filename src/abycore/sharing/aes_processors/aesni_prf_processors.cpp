@@ -11,7 +11,7 @@
 #include <iomanip>
 
 constexpr size_t mainEvaluatingWidthXor = 4;
-constexpr size_t mainEvaluatingWidthAnd = 4;
+constexpr size_t mainEvaluatingWidthAnd = 4; // 4
 constexpr size_t mainGarblingWidthAnd = 2;
 constexpr size_t mainGarblingWidthXor = 3;
 
@@ -27,12 +27,17 @@ static void PrintKey(__m128i data) {
 
 void PRFXorLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	ProcessQueue(m_gateQueue, mainEvaluatingWidthXor, numTablesInBatch, tableCounter, receivedTables);
+	ProcessQueue(m_gateQueue, numTablesInBatch, tableCounter, receivedTables);
 }
 
-void PRFXorLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+size_t PRFXorLTEvaluatingAesniProcessor::vectorWidth() const
 {
-	computeAESOutKeys<mainEvaluatingWidthXor>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+	return mainEvaluatingWidthXor;
+}
+
+void PRFXorLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainEvaluatingWidthXor>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
 void PRFXorLTEvaluatingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
@@ -232,12 +237,17 @@ void PRFXorLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 
 void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	ProcessQueue(m_gateQueue, mainGarblingWidthXor, numTablesInBatch, tableCounter, receivedTables);
+	ProcessQueue(m_gateQueue, numTablesInBatch, tableCounter, receivedTables);
 }
 
-void PRFXorLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+size_t PRFXorLTGarblingAesniProcessor::vectorWidth() const
 {
-	computeAESOutKeys<mainGarblingWidthXor>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+	return mainGarblingWidthXor;
+}
+
+void PRFXorLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainGarblingWidthXor>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
 void PRFXorLTGarblingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
@@ -416,15 +426,15 @@ void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 
 			__m128i delta = _mm_xor_si128(data[3 * w + 0], data[3 * w + 1]);
 
-			__m128i rtkey0, tableEntry;
+			__m128i tableMask = _mm_xor_si128(rkey[w], delta);
+			__m128i tableEntry = _mm_xor_si128(data[3 * w + 2], tableMask);
+
+			__m128i rtkey0;
 			if (rpbit[w]) {
-				rtkey0 = _mm_xor_si128(rkey[w], delta);
-				tableEntry = _mm_xor_si128(data[3 * w + 2], rtkey0);
+				rtkey0 = tableMask;
 			}
 			else {
 				rtkey0 = rkey[w];
-				__m128i rtkey1 = _mm_xor_si128(rtkey0, delta);
-				tableEntry = _mm_xor_si128(data[3 * w + 2], rtkey1);
 			}
 			_mm_storeu_si128((__m128i*)gtptr, tableEntry);
 			gtptr += 16;
@@ -450,12 +460,17 @@ void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 
 void PRFAndLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	ProcessQueue(m_gateQueue, mainEvaluatingWidthAnd, numTablesInBatch, tableCounter, receivedTables);
+	ProcessQueue(m_gateQueue, numTablesInBatch, tableCounter, receivedTables);
 }
 
-void PRFAndLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+size_t PRFAndLTEvaluatingAesniProcessor::vectorWidth() const
 {
-	computeAESOutKeys<mainEvaluatingWidthAnd>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+	return mainEvaluatingWidthAnd;
+}
+
+void PRFAndLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainEvaluatingWidthAnd>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
 void PRFAndLTEvaluatingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
@@ -544,23 +559,8 @@ void PRFAndLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 			}
 			gtptr += 16;
 
-			switch (combined_bits)
-			{
-			case 0:
-				opbit[w] = transmittedBitFirst & 0x01;
-				break;
-			case 1:
-				opbit[w] = (transmittedBitFirst & 0x02) >> 1;
-				break;
-			case 2:
-				opbit[w] = transmittedBitSecond & 0x01;
-				break;
-			case 3:
-				opbit[w] = (transmittedBitSecond & 0x02) >> 1;
-				break;
-			default:
-				break;
-			}
+			const uint8_t joinedBits = (transmittedBitSecond << 2) | transmittedBitFirst;
+			opbit[w] = (joinedBits >> combined_bits) & 0x01;
 
 			//std::cout << "Combined bits: " << (uint16_t) combined_bits << std::endl;
 
@@ -642,33 +642,34 @@ void PRFAndLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 		for (size_t w = 0; w < width; ++w)
 		{
 			__m128i temp = _mm_xor_si128(data[2 * w + 0], data[2 * w + 1]);
-			/*
-			std::cout << "XOR Key:" << std::endl;
-			PrintKey(temp);
-			std::cout << std::endl;
-			*/
+			//std::cout << "XOR Key:" << std::endl;
+			//PrintKey(temp);
+			//std::cout << std::endl;
 			__m128i mask = _mm_set_epi8(0xFD, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF);
 			temp = _mm_and_si128(mask, temp);
 			temp = _mm_xor_si128(temp, finalMask[w]);
 			_mm_storeu_si128((__m128i*)(targetGateKey[w]), temp);
 			targetGateKey[w][15] ^= opbit[w]; // clear out the permutation bit and then set it
-			/*
-			std::cout << "Stored Key:" << std::endl;
-			PrintKey(_mm_loadu_si128((__m128i*)targetGateKey[w]));
-			std::cout << std::endl;
-			*/
+			//std::cout << "Stored Key:" << std::endl;
+			//PrintKey(_mm_loadu_si128((__m128i*)targetGateKey[w]));
+			//std::cout << std::endl;
 		}
 	}
 }
 
 void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	ProcessQueue(m_gateQueue, mainGarblingWidthAnd, numTablesInBatch, tableCounter, receivedTables);
+	ProcessQueue(m_gateQueue, numTablesInBatch, tableCounter, receivedTables);
 }
 
-void PRFAndLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+size_t PRFAndLTGarblingAesniProcessor::vectorWidth() const
 {
-	computeAESOutKeys<mainGarblingWidthAnd>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+	return mainGarblingWidthAnd;
+}
+
+void PRFAndLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainGarblingWidthAnd>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
 void PRFAndLTGarblingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
@@ -680,7 +681,7 @@ void PRFAndLTGarblingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, si
 template<size_t width>
 void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	const size_t num_keys = 4 * width;
+	constexpr size_t num_keys = 4 * width;
 
 	// note: this implementation heavily relies on the fact that
 	// the optimizer notices that all w-indexed loop iterations are independent

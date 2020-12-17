@@ -28,6 +28,8 @@
 #include "../sharing/yaoserversharing.h"
 #include "../sharing/yao_variants/halfgates_prp_client.h"
 #include "../sharing/yao_variants/halfgates_prp_server.h"
+#include "../sharing/yao_variants/halfgates_circ_client.h"
+#include "../sharing/yao_variants/halfgates_circ_server.h"
 #include "../sharing/yao_variants/prf_client.h"
 #include "../sharing/yao_variants/prf_server.h"
 #include <ENCRYPTO_utils/crypto/crypto.h>
@@ -278,16 +280,28 @@ BOOL ABYParty::InitCircuit(uint32_t bitlen, uint32_t reservegates, const std::st
 	m_vSharings.resize(S_LAST);
 	m_vSharings[S_BOOL] = new BoolSharing(S_BOOL, m_eRole, 1, m_pCircuit, m_cCrypt.get(), abycircdir);
 	if (m_eRole == SERVER) {
-		//m_vSharings[S_YAO] = new HalfGatesPRPServerSharing(S_YAO, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
-		//m_vSharings[S_YAO_REV] = new HalfGatesPRPClientSharing(S_YAO_REV, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+#ifdef YAO_AES_IS_PRP
+		m_vSharings[S_YAO] = new HalfGatesPRPServerSharing(S_YAO, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+		m_vSharings[S_YAO_REV] = new HalfGatesPRPClientSharing(S_YAO_REV, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+#elif defined(YAO_AES_IS_CIRCULAR_SECURE)
+		m_vSharings[S_YAO] = new HalfGatesCircServerSharing(S_YAO, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+		m_vSharings[S_YAO_REV] = new HalfGatesCircClientSharing(S_YAO_REV, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+#else
 		m_vSharings[S_YAO] = new PRFServerSharing(S_YAO, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
 		m_vSharings[S_YAO_REV] = new PRFClientSharing(S_YAO_REV, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+#endif
 	}
 	else {
-		//m_vSharings[S_YAO] = new HalfGatesPRPClientSharing(S_YAO, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
-		//m_vSharings[S_YAO_REV] = new HalfGatesPRPServerSharing(S_YAO_REV, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+#ifdef YAO_AES_IS_PRP
+		m_vSharings[S_YAO] = new HalfGatesPRPClientSharing(S_YAO, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+		m_vSharings[S_YAO_REV] = new HalfGatesPRPServerSharing(S_YAO_REV, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+#elif defined(YAO_AES_IS_CIRCULAR_SECURE)
+		m_vSharings[S_YAO] = new HalfGatesCircClientSharing(S_YAO, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+		m_vSharings[S_YAO_REV] = new HalfGatesCircServerSharing(S_YAO_REV, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+#else
 		m_vSharings[S_YAO] = new PRFClientSharing(S_YAO, CLIENT, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
 		m_vSharings[S_YAO_REV] = new PRFServerSharing(S_YAO_REV, SERVER, m_sSecLvl.symbits, m_pCircuit, m_cCrypt.get(), abycircdir);
+#endif
 	}
 	switch (bitlen) {
 	case 8:

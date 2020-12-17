@@ -3,6 +3,8 @@
 #include "../aes_processors/vaes_halfgate_processors.h"
 #include "../cpu_features/include/cpuinfo_x86.h"
 
+#include <emmintrin.h>
+
 static const cpu_features::X86Features CPU_FEATURES = cpu_features::GetX86Info().features;
 
 bool HalfGatesPRPClientSharing::evaluateXORGate(GATE* gate)
@@ -17,8 +19,18 @@ bool HalfGatesPRPClientSharing::evaluateXORGate(GATE* gate)
 	 gate->gs.yval[i] = m_vGates[idleft].gs.yval[i] ^ m_vGates[idright].gs.yval[i];
 	 }*/
 	 //std::cout << "doing " << m_nSecParamIters << "iters on " << nvals << " vals " << std::endl;
-	for (uint32_t i = 0; i < m_nSecParamIters * nvals; i++) {
-		((UGATE_T*)gate->gs.yval)[i] = ((UGATE_T*)m_vGates[idleft].gs.yval)[i] ^ ((UGATE_T*)m_vGates[idright].gs.yval)[i];
+	// < m_nSecParamIters * nvals
+
+	assert(m_nSecParamBytes == 16);
+
+	for (uint32_t i = 0; i < nvals; i++) {
+		__m128i leftKey = _mm_loadu_si128((__m128i*)(m_vGates[idleft].gs.yval + i * 16));
+		__m128i rightKey = _mm_loadu_si128((__m128i*)(m_vGates[idright].gs.yval + i * 16));
+		__m128i result = _mm_xor_si128(leftKey, rightKey);
+		_mm_storeu_si128((__m128i*)(gate->gs.yval + i * 16), result);
+
+
+		//((UGATE_T*)gate->gs.yval)[i] = ((UGATE_T*)m_vGates[idleft].gs.yval)[i] ^ ((UGATE_T*)m_vGates[idright].gs.yval)[i];
 	}
 	//std::cout << "Keyval (" << 0 << ")= " << (gate->gs.yval[m_nSecParamBytes-1] & 0x01)  << std::endl;
 	//std::cout << (gate->gs.yval[m_nSecParamBytes-1] & 0x01);
@@ -37,7 +49,7 @@ bool HalfGatesPRPClientSharing::evaluateXORGate(GATE* gate)
 	return true;
 }
 
-void HalfGatesPRPClientSharing::InitClient()
+std::unique_ptr<AESProcessor> HalfGatesPRPClientSharing::provideEvaluationProcessor() const
 {
 	if (m_nSecParamBytes != 16)
 	{
@@ -46,16 +58,27 @@ void HalfGatesPRPClientSharing::InitClient()
 	}
 	else
 	{
-		if (CPU_FEATURES.vaes && CPU_FEATURES.avx512f)
-			m_aesProcessor = std::make_unique<FixedKeyLTEvaluatingVaesProcessor>(getAndQueue(), m_vGates);
+		if (ENABLE_VAES && CPU_FEATURES.vaes && CPU_FEATURES.avx512f && CPU_FEATURES.avx512bw && CPU_FEATURES.avx512vl) {
+			if (ENABLE_HYBRID) {
+				return std::make_unique<HybridHalfgateEvaluatingProcessor<FixedKeyLTEvaluatingVaesProcessor, FixedKeyLTEvaluatingAesniProcessor>>(getAndQueue(), m_vGates);
+			}
+			else {
+				return std::make_unique<FixedKeyLTEvaluatingVaesProcessor>(getAndQueue(), m_vGates);
+			}
+		}	
 		else if (CPU_FEATURES.aes && CPU_FEATURES.sse4_1)
-			m_aesProcessor = std::make_unique<FixedKeyLTEvaluatingAesniProcessor>(getAndQueue(), m_vGates);
+			return std::make_unique<FixedKeyLTEvaluatingAesniProcessor>(getAndQueue(), m_vGates);
 		else
 		{
 			std::cerr << "unsupported host CPU." << std::endl;
 			assert(false);
 		}
 	}
+}
+
+void HalfGatesPRPClientSharing::InitClient()
+{
+	m_aesProcessor = provideEvaluationProcessor();	
 }
 
 void HalfGatesPRPClientSharing::evaluateDeferredANDGates(size_t numWires)

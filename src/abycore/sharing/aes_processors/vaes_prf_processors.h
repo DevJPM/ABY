@@ -1,12 +1,12 @@
-#ifndef __AESNI_PRF_PROCESSORS_H__
-#define __AESNI_PRF_PROCESSORS_H__
+#ifndef __VAES_PRF_PROCESSORS_H__
+#define __VAES_PRF_PROCESSORS_H__
 
 #include "aes_processor.h"
 
-class PRFXorLTEvaluatingAesniProcessor : public AESProcessor
+class PRFXorLTEvaluatingVaesProcessor : public AESProcessor
 {
 public:
-	PRFXorLTEvaluatingAesniProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates, const std::vector<uint64_t>& wireIds) :
+	PRFXorLTEvaluatingVaesProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates, const std::vector<uint64_t>& wireIds) :
 		m_gateQueue(gateQueue),
 		m_vGates(vGates),
 		m_vWireIds(wireIds)
@@ -16,7 +16,7 @@ public:
 private:
 	template<class M, class R>
 	friend class HybridPRFProcessor;
-	template<size_t width>  
+	template<size_t width>
 	void computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables);
 
 	const std::vector<GATE*>& m_gateQueue;
@@ -28,10 +28,10 @@ private:
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
-class PRFXorLTGarblingAesniProcessor : public AESProcessor
+class PRFXorLTGarblingVaesProcessor : public AESProcessor
 {
 public:
-	PRFXorLTGarblingAesniProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates, const std::vector<uint64_t>& wireIds) :
+	PRFXorLTGarblingVaesProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates, const std::vector<uint64_t>& wireIds) :
 		m_gateQueue(gateQueue),
 		m_vGates(vGates),
 		m_vWireIds(wireIds)
@@ -41,7 +41,7 @@ public:
 private:
 	template<class M, class R>
 	friend class HybridPRFProcessor;
-	template<size_t width>  
+	template<size_t width>
 	void computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, uint8_t* receivedTables);
 
 	const std::vector<GATE*>& m_gateQueue;
@@ -53,10 +53,10 @@ private:
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
-class PRFAndLTEvaluatingAesniProcessor : public AESProcessor
+class PRFAndLTEvaluatingVaesProcessor : public AESProcessor
 {
 public:
-	PRFAndLTEvaluatingAesniProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates, const std::vector<uint64_t>& wireIds) :
+	PRFAndLTEvaluatingVaesProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates, const std::vector<uint64_t>& wireIds) :
 		m_gateQueue(gateQueue),
 		m_vGates(vGates),
 		m_vWireIds(wireIds)
@@ -66,7 +66,7 @@ public:
 private:
 	template<class M, class R>
 	friend class HybridPRFProcessor;
-	template<size_t width>  
+	template<size_t width>
 	void computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables);
 
 	const std::vector<GATE*>& m_gateQueue;
@@ -78,10 +78,10 @@ private:
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
-class PRFAndLTGarblingAesniProcessor : public AESProcessor
+class PRFAndLTGarblingVaesProcessor : public AESProcessor
 {
 public:
-	PRFAndLTGarblingAesniProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates, const std::vector<uint64_t>& wireIds) :
+	PRFAndLTGarblingVaesProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates, const std::vector<uint64_t>& wireIds) :
 		m_gateQueue(gateQueue),
 		m_vGates(vGates),
 		m_vWireIds(wireIds)

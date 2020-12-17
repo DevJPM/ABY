@@ -183,12 +183,17 @@ void FixedKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCoun
 
 void FixedKeyLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
 {
-	ProcessQueue(m_tableGateQueue, mainGarblingWidthNI, numTablesInBatch, tableCounter, tableBuffer);
+	ProcessQueue(m_tableGateQueue, numTablesInBatch, tableCounter, tableBuffer);
 }
 
-void FixedKeyLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+size_t FixedKeyLTGarblingAesniProcessor::vectorWidth() const
 {
-	computeOutKeysAndTable<mainGarblingWidthNI>(wireCounter, numWiresInBatch, 0, 0, tableBuffer);
+	return mainGarblingWidthNI;
+}
+
+void FixedKeyLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeOutKeysAndTable<mainGarblingWidthNI>(wireCounter, numWiresInBatch, queueStartIndex, simdStartOffset, tableBuffer);
 }
 
 void FixedKeyLTGarblingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
@@ -380,12 +385,17 @@ void InputKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCoun
 
 void InputKeyLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer)
 {
-	ProcessQueue(m_tableGateQueue, mainGarblingWidthNI, numTablesInBatch, tableCounter, tableBuffer);
+	ProcessQueue(m_tableGateQueue, numTablesInBatch, tableCounter, tableBuffer);
 }
 
-void InputKeyLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+size_t InputKeyLTGarblingAesniProcessor::vectorWidth() const
 {
-	computeOutKeysAndTable<mainGarblingWidthNI>(wireCounter, numWiresInBatch, 0, 0, tableBuffer);
+	return mainGarblingWidthNI;
+}
+
+void InputKeyLTGarblingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeOutKeysAndTable<mainGarblingWidthNI>(wireCounter, numWiresInBatch, queueStartIndex, simdStartOffset, tableBuffer);
 }
 
 void InputKeyLTGarblingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
@@ -711,12 +721,17 @@ inline void InputKeyLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t table
 
 void FixedKeyLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	ProcessQueue(m_gateQueue, mainEvaluatingWidthNI, numTablesInBatch, tableCounter, receivedTables);
+	ProcessQueue(m_gateQueue, numTablesInBatch, tableCounter, receivedTables);
 }
 
-void FixedKeyLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+size_t FixedKeyLTEvaluatingAesniProcessor::vectorWidth() const
 {
-	computeAESOutKeys<mainEvaluatingWidthNI>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+	return mainEvaluatingWidthNI;
+}
+
+void FixedKeyLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainEvaluatingWidthNI>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
 void FixedKeyLTEvaluatingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
@@ -726,12 +741,17 @@ void FixedKeyLTEvaluatingAesniProcessor::LeftoversProcessor(uint32_t wireCounter
 
 void InputKeyLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
-	ProcessQueue(m_gateQueue, mainEvaluatingWidthNI, numTablesInBatch, tableCounter, receivedTables);
+	ProcessQueue(m_gateQueue, numTablesInBatch, tableCounter, receivedTables);
 }
 
-void InputKeyLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer)
+size_t InputKeyLTEvaluatingAesniProcessor::vectorWidth() const
 {
-	computeAESOutKeys<mainEvaluatingWidthNI>(wireCounter, 0, 0, numWiresInBatch, tableBuffer);
+	return mainEvaluatingWidthNI;
+}
+
+void InputKeyLTEvaluatingAesniProcessor::BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)
+{
+	computeAESOutKeys<mainEvaluatingWidthNI>(wireCounter, queueStartIndex, simdStartOffset, numWiresInBatch, tableBuffer);
 }
 
 void InputKeyLTEvaluatingAesniProcessor::LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer)

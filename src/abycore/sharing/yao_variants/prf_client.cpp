@@ -1,6 +1,9 @@
 #include "prf_client.h"
 #include "../aes_processors/aesni_prf_processors.h"
+#include "../aes_processors/vaes_prf_processors.h"
+#include "../cpu_features/include/cpuinfo_x86.h"
 
+static const cpu_features::X86Features CPU_FEATURES = cpu_features::GetX86Info().features;
 
 void PRFClientSharing::evaluateDeferredXORGates(size_t numWires)
 {
@@ -111,6 +114,32 @@ void PRFClientSharing::EvaluateUniversalGate(GATE* gate, uint32_t pos, GATE* gle
 
 void PRFClientSharing::InitClient()
 {
-	m_xorAESProcessor = std::make_unique<PRFXorLTEvaluatingAesniProcessor>(getXorQueue(), m_vGates, m_vXorIds);
-	m_andAESProcessor = std::make_unique<PRFAndLTEvaluatingAesniProcessor>(getAndQueue(), m_vGates, m_vAndIds);
+	if (m_nSecParamBytes != 16)
+	{
+		std::cerr << "unsupported security parameter." << std::endl;
+		assert(false);
+	}
+	else
+	{
+		if (ENABLE_VAES && CPU_FEATURES.vaes && CPU_FEATURES.avx512f && CPU_FEATURES.avx512bw && CPU_FEATURES.avx512vl) {
+			if (ENABLE_HYBRID) {
+				m_xorAESProcessor = std::make_unique<HybridPRFProcessor<PRFXorLTEvaluatingVaesProcessor, PRFXorLTEvaluatingAesniProcessor>>(getXorQueue(), m_vGates, m_vXorIds);
+				m_andAESProcessor = std::make_unique<HybridPRFProcessor<PRFAndLTEvaluatingVaesProcessor, PRFAndLTEvaluatingAesniProcessor>>(getAndQueue(), m_vGates, m_vAndIds);
+			}
+			else {
+				m_xorAESProcessor = std::make_unique<PRFXorLTEvaluatingVaesProcessor>(getXorQueue(), m_vGates, m_vXorIds);
+				m_andAESProcessor = std::make_unique<PRFAndLTEvaluatingVaesProcessor>(getAndQueue(), m_vGates, m_vAndIds);
+			}
+		}
+		else if (CPU_FEATURES.aes && CPU_FEATURES.sse4_1) {
+
+			m_xorAESProcessor = std::make_unique<PRFXorLTEvaluatingAesniProcessor>(getXorQueue(), m_vGates, m_vXorIds);
+			m_andAESProcessor = std::make_unique<PRFAndLTEvaluatingAesniProcessor>(getAndQueue(), m_vGates, m_vAndIds);
+		}
+		else
+		{
+			std::cerr << "unsupported host CPU." << std::endl;
+			assert(false);
+		}
+	}
 }

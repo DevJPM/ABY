@@ -13,7 +13,7 @@ public:
 		InitServer();
 	}
 	/** Destructor of the class.*/
-	//~HalfGatesPRPClientSharing();
+	virtual ~HalfGatesPRPServerSharing() {}
 protected:
 	size_t ciphertextPerAND() const override { return 2; }
 	size_t ciphertextPerXOR() const override { return 0; }
@@ -30,6 +30,8 @@ protected:
 	void createOppositeInputKeys(CBitVector& oppositeInputKeys, CBitVector& reglarInputKeys, size_t numKeys) override;
 	void copyServerInputKey(uint8_t inputBit, uint8_t permutationBit, size_t targetByteOffset, size_t sourceByteOffset) override;
 	uint8_t computePermutationValueFromBoolConv(uint8_t inputBit, uint8_t permutationBit) override { return inputBit ^ permutationBit; }
+
+	virtual std::unique_ptr<AESProcessorHalfGateGarbling> provideGarblingProcessor() const;
 private:
 	void InitServer();
 	void GarbleUniversalGate(GATE* ggate, uint32_t pos, GATE* gleft, GATE* gright, uint32_t ttable);

@@ -30,11 +30,23 @@
 //#define DEBUGCOMM
 #define DEBUGABYPARTY 0
 
-#define PRINT_PERFORMANCE_STATS 0 //prints overall runtime statistics and gate counts
+#define PRINT_PERFORMANCE_STATS 1 //prints overall runtime statistics and gate counts
 #define PRINT_COMMUNICATION_STATS 0 //prints communication statistics
 #define BENCHONLINEPHASE 0 //show very detailed runtime statistic on each sharing for online phase, typically for troubleshooting
 
 #define BENCH_HARDWARE 0 // measure RTT, connection bandwidth and AES
+
+// These three #define s manage the assumptions used by the Yao sharing for AES
+// it is strongly recommended to only define one of them
+// when defining more than one the strongest assumption (i.e. the "least likely to hold") is chosen for the implementation
+
+#define YAO_AES_IS_PRP
+#define YAO_AES_IS_CIRCULAR_SECURE
+#define YAO_AES_IS_PRF
+
+#define ENABLE_VAES true
+// Hybrid requires VAES to be enabled
+#define ENABLE_HYBRID false
 
 #define BATCH
 

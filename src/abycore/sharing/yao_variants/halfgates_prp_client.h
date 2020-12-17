@@ -11,7 +11,7 @@ public:
 		InitClient();
 	}
 	/** Destructor of the class.*/
-	//~HalfGatesPRPClientSharing();
+	virtual ~HalfGatesPRPClientSharing() {}
 protected:
 	size_t ciphertextPerAND() const override { return 2; }
 	size_t ciphertextPerXOR() const override { return 0; }
@@ -23,6 +23,8 @@ protected:
 	bool evaluateUNIVGate(GATE* gate) override;
 
 	inline void resetEvaluationSpecific() override {}
+
+	virtual std::unique_ptr<AESProcessor> provideEvaluationProcessor() const;
 private:
 	void InitClient();
 	void EvaluateGarbledTablePrepared(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright);

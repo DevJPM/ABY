@@ -36,6 +36,8 @@ public:
 	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r; }
 	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
 private:
+	template<class M, class R>
+	friend class HybridHalfgateGarblingProcessor;
 	// only processes multiples of width
 	template<size_t width> void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer);
 
@@ -43,7 +45,8 @@ private:
 	const std::vector<GATE>& m_vGates;
 	const uint8_t* m_globalRandomOffset;
 
-	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer) override;
+	size_t vectorWidth() const override;
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
@@ -58,6 +61,8 @@ public:
 	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r; }
 	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
 private:
+	template<class M, class R>
+	friend class HybridHalfgateGarblingProcessor;
 	// only processes multiples of width
 	template<size_t width> void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer);
 
@@ -66,7 +71,8 @@ private:
 	const std::vector<GATE>& m_vGates;
 	const uint8_t* m_globalRandomOffset;
 
-	virtual void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer) override;
+	size_t vectorWidth() const override;
+	virtual void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 	virtual void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
@@ -80,13 +86,16 @@ public:
 	}
 	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables) override;
 private:
+	template<class M, class R>
+	friend class HybridHalfgateEvaluatingProcessor;
 	template<size_t width>  void computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables);
 
 	FixedKeyProvider m_fixedKeyProvider;
 	const std::vector<GATE*>& m_gateQueue;
 	const std::vector<GATE>& m_vGates;
 
-	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer) override;
+	size_t vectorWidth() const override;
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
@@ -100,12 +109,15 @@ public:
 	}
 	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables) override;
 private:
+	template<class M, class R>
+	friend class HybridHalfgateEvaluatingProcessor;
 	template<size_t width>  void computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables);
 
 	const std::vector<GATE*>& m_gateQueue;
 	const std::vector<GATE>& m_vGates;
 
-	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer) override;
+	size_t vectorWidth() const override;
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 

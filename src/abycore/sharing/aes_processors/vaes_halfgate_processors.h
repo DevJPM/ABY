@@ -21,9 +21,11 @@ public:
 		m_vGates(vGates)
 	{
 	}
-	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r; }
+	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r;}
 	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
 private:
+	template<class M, class R>
+	friend class HybridHalfgateGarblingProcessor;
 	// only processes multiples of width
 	template<size_t width> void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer);
 
@@ -32,7 +34,8 @@ private:
 	const std::vector<GATE>& m_vGates;
 	const uint8_t* m_globalRandomOffset;
 
-	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer) override;
+	size_t vectorWidth() const override;
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
 
@@ -46,14 +49,65 @@ public:
 	}
 	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables) override;
 private:
+	template<class M, class R>
+	friend class HybridHalfgateEvaluatingProcessor;
 	template<size_t width>  void computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables);
 
 	FixedKeyProvider m_fixedKeyProvider;
 	const std::vector<GATE*>& m_gateQueue;
 	const std::vector<GATE>& m_vGates;
 
-	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, uint8_t* tableBuffer) override;
+	size_t vectorWidth() const override;
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
 };
+
+class InputKeyLTGarblingVaesProcessor : public AESProcessorHalfGateGarbling
+{
+public:
+	InputKeyLTGarblingVaesProcessor(const std::vector<GATE*>& tableGateQueue, const std::vector<GATE>& vGates) :
+		m_tableGateQueue(tableGateQueue),
+		m_vGates(vGates)
+	{
+	}
+	virtual void setGlobalKey(const uint8_t* r) override { m_globalRandomOffset = r; }
+	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* tableBuffer) override;
+private:
+	template<class M, class R>
+	friend class HybridHalfgateGarblingProcessor;
+	// only processes multiples of width
+	template<size_t width> void computeOutKeysAndTable(uint32_t tableCounter, size_t numTablesInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer);
+
+	const std::vector<GATE*>& m_tableGateQueue;
+	const std::vector<GATE>& m_vGates;
+	const uint8_t* m_globalRandomOffset;
+
+	size_t vectorWidth() const override;
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
+	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
+};
+
+class InputKeyLTEvaluatingVaesProcessor : public AESProcessor
+{
+public:
+	InputKeyLTEvaluatingVaesProcessor(const std::vector<GATE*>& gateQueue, const std::vector<GATE>& vGates) :
+		m_gateQueue(gateQueue),
+		m_vGates(vGates)
+	{
+	}
+	virtual void computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables) override;
+private:
+	template<class M, class R>
+	friend class HybridHalfgateEvaluatingProcessor;
+	template<size_t width>  void computeAESOutKeys(uint32_t tableCounter, size_t queueStartIndex, size_t simdStartOffset, size_t numTablesInBatch, const uint8_t* receivedTables);
+
+	const std::vector<GATE*>& m_gateQueue;
+	const std::vector<GATE>& m_vGates;
+
+	size_t vectorWidth() const override;
+	void BulkProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
+	void LeftoversProcessor(uint32_t wireCounter, size_t numWiresInBatch, size_t queueStartIndex, size_t simdStartOffset, uint8_t* tableBuffer) override;
+};
+
 
 #endif

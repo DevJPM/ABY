@@ -54,12 +54,12 @@ int main(int argc, char** argv) {
 
 	seclvl seclvl = get_sec_lvl(secparam);
 
-	run_tests(role, (char*) address.c_str(), port, seclvl, bitlen, nvals, nthreads, mt_alg, test_op, num_test_runs, quiet, ignore_verification, randomseed);
+	//run_tests(role, (char*) address.c_str(), port, seclvl, bitlen, nvals, nthreads, mt_alg, test_op, num_test_runs, quiet, ignore_verification, randomseed);
 
-	if (test_op == -1) {
+	//if (test_op == -1) {
 		//Test the AES circuit
-		std::cout << "Testing AES circuit in Boolean sharing" << std::endl;
-		test_aes_circuit(role, (char*) address.c_str(), port, seclvl, nvals, nthreads, mt_alg, S_BOOL);
+		//std::cout << "Testing AES circuit in Boolean sharing" << std::endl;
+		//test_aes_circuit(role, (char*) address.c_str(), port, seclvl, nvals, nthreads, mt_alg, S_BOOL);
 		std::cout << "Testing AES circuit in Yao sharing" << std::endl;
 		test_aes_circuit(role, (char*) address.c_str(), port, seclvl, nvals, nthreads, mt_alg, S_YAO);
 		std::cout << "Testing AES circuit in Yao sharing, key expansion during SFE and client only input" << std::endl;
@@ -68,16 +68,16 @@ int main(int argc, char** argv) {
 		//	test_aes_circuit(role, (char*) address.c_str(), port, seclvl, nvals, nthreads, mt_alg, S_SPLUT);
 
 		//Test the SHA1 circuit TODO: Constant gates are limited to nvals < 64. Fix!
-		std::cout << "Testing SHA1 circuit in Boolean sharing" << std::endl;
-		test_sha1_circuit(role, (char*) address.c_str(), port, seclvl, 63, nthreads, mt_alg, S_BOOL);
+		//std::cout << "Testing SHA1 circuit in Boolean sharing" << std::endl;
+		//test_sha1_circuit(role, (char*) address.c_str(), port, seclvl, 63, nthreads, mt_alg, S_BOOL);
 		std::cout << "Testing SHA1 circuit in Yao sharing" << std::endl;
 		test_sha1_circuit(role, (char*) address.c_str(), port, seclvl, 63, nthreads, mt_alg, S_YAO);
 		//std::cout << "Testing SHA1 circuit in Setup-LUT sharing" << std::endl;
 		//test_sha1_circuit(role, (char*) address.c_str(), seclvl, 63, nthreads, mt_alg, S_SPLUT);
 
 		//Test the Sort-Compare-Shuffle PSI circuit
-		std::cout << "Testing SCS PSI circuit in Boolean sharing" << std::endl;
-		test_psi_scs_circuit(role, (char*) address.c_str(), port, seclvl, nelements, bitlen, nthreads, mt_alg, 0, true);
+		//std::cout << "Testing SCS PSI circuit in Boolean sharing" << std::endl;
+		//test_psi_scs_circuit(role, (char*) address.c_str(), port, seclvl, nelements, bitlen, nthreads, mt_alg, 0, true);
 		std::cout << "Testing SCS PSI circuit in Yao sharing" << std::endl;
 		test_psi_scs_circuit(role, (char*) address.c_str(), port, seclvl, nelements, bitlen, nthreads, mt_alg, 1, true);
 		//std::cout << "Testing SCS PSI circuit in Setup-LUT sharing" << std::endl;
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
 		//test_lowmc_circuit(role, (char*) address.c_str(), seclvl, nvals, nthreads, mt_alg, S_BOOL, (LowMCParams*) &stp);
 
 		//test_min_eucliden_dist_circuit(role, (char*) address.c_str(), port, seclvl, nvals, 6, nthreads, mt_alg, S_ARITH, S_YAO, ePreCompDefault);
-	}
+	//}
 
 
 	std::cout << "All tests successfully passed." << std::endl;

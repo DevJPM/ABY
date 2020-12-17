@@ -117,7 +117,7 @@ void YaoSharing::PrintKey(BYTE* key) {
 }
 
 void YaoSharing::PrintPerformanceStatistics() {
-	std::cout <<  get_sharing_name(m_eContext) << ": ANDs: " << m_nANDGates << " ; Depth: " << GetMaxCommunicationRounds() << std::endl;
+	std::cout <<  get_sharing_name(m_eContext) << ": ANDs: " << m_nANDGates<<"; XORs: "<< m_nXORGates << " ; Depth: " << GetMaxCommunicationRounds() << std::endl;
 }
 
 bool YaoSharing::CheckIfGateTrapsQueue(uint32_t gate, std::vector<GATE*> queue, e_gatetype queueType) const
