@@ -112,16 +112,14 @@ void FixedKeyLTGarblingAesniProcessor::computeOutKeysAndTable(uint32_t tableCoun
 
 		for (size_t w = 0; w < 4 * width; ++w)
 		{
-			// this assumes that we actually use the correct constant that sets the top bit
-			// this is the left shift by 1 bit
-			__m128i tempL = _mm_slli_epi64(keys[w], 1);
-			__m128i tempR = _mm_srli_epi64(keys[w], 63);
-			tempR = _mm_shuffle_epi32(tempR,0x4E); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
-			__m128i topExtractor = _mm_set_epi64x(~0, 0);
-			__m128i topBit = _mm_and_si128(tempR,topExtractor);
-			keys[w] = _mm_xor_si128(tempL, topBit);
+			// this is the 128-bit leftshift code from https://stackoverflow.com/a/34482688/4733946
+			// as requested by User0 https://stackoverflow.com/users/5720018/user0
+			// and given by Peter Cordes https://stackoverflow.com/users/224132/peter-cordes
 
-			//parentKeys[w] = _mm_slli_si128(parentKeys[w], 1); // this does BYTE shift not BIT shifts!1!
+			__m128i carry = _mm_bslli_si128(keys[w], 8);
+			carry = _mm_srli_epi64(carry, 63);
+			keys[w] = _mm_slli_epi64(keys[w], 1);
+			keys[w] = _mm_or_si128(keys[w], carry);
 
 			// this is the actual AES input
 			data[w] = _mm_xor_si128(data[w], keys[w]);
@@ -531,16 +529,14 @@ inline void FixedKeyLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t table
 
 		for (size_t w = 0; w < 2 * width; ++w)
 		{
-			// this assumes that we actually use the correct constant that sets the top bit
-			// this is the left shift by 1 bit
-			__m128i tempL = _mm_slli_epi64(keys[w], 1);
-			__m128i tempR = _mm_srli_epi64(keys[w], 63);
-			tempR = _mm_shuffle_epi32(tempR, 0x4E); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
-			__m128i topExtractor = _mm_set_epi64x(~0, 0);
-			__m128i topBit = _mm_and_si128(tempR, topExtractor);
-			keys[w] = _mm_xor_si128(tempL, topBit);
+			// this is the 128-bit leftshift code from https://stackoverflow.com/a/34482688/4733946
+			// as requested by User0 https://stackoverflow.com/users/5720018/user0
+			// and given by Peter Cordes https://stackoverflow.com/users/224132/peter-cordes
 
-			//parentKeys[w] = _mm_slli_si128(parentKeys[w], 1); // this does BYTE shift not BIT shifts!1!
+			__m128i carry = _mm_bslli_si128(keys[w], 8);
+			carry = _mm_srli_epi64(carry, 63);
+			keys[w] = _mm_slli_epi64(keys[w], 1);
+			keys[w] = _mm_or_si128(keys[w], carry);
 
 			// this is the actual AES input
 			data[w] = _mm_xor_si128(data[w], keys[w]);

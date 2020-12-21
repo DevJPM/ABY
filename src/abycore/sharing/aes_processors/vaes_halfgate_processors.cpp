@@ -270,26 +270,19 @@ inline void FixedKeyLTEvaluatingVaesProcessor::computeAESOutKeys(uint32_t tableC
 
 		for (size_t w = 0; w < div_width; ++w)
 		{
-			// this assumes that we actually use the correct constant that sets the top bit
-			// this is the left shift by 1 bit
-			__m512i tempL = _mm512_slli_epi64(leftKeys[w], 1);
-			__m512i tempR = _mm512_srli_epi64(leftKeys[w], 63);
-			tempR = _mm512_shuffle_epi32(tempR, _MM_PERM_BADC); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
-			const __m512i topExtractor = _mm512_set_epi64(
-				~0, 0,
-				~0, 0,
-				~0, 0,
-				~0, 0);
-			__m512i topBit = _mm512_and_si512(tempR, topExtractor);
-			leftKeys[w] = _mm512_xor_si512(tempL, topBit);
+			// this is the 128-bit leftshift code from https://stackoverflow.com/a/34482688/4733946
+			// as requested by User0 https://stackoverflow.com/users/5720018/user0
+			// and given by Peter Cordes https://stackoverflow.com/users/224132/peter-cordes
 
-			tempL = _mm512_slli_epi64(rightKeys[w], 1);
-			tempR = _mm512_srli_epi64(rightKeys[w], 63);
-			tempR = _mm512_shuffle_epi32(tempR, _MM_PERM_BADC); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap
-			topBit = _mm512_and_si512(tempR, topExtractor);
-			rightKeys[w] = _mm512_xor_si512(tempL, topBit);
+			__m512i leftCarry = _mm512_bslli_epi128(leftKeys[w], 8);
+			leftCarry = _mm512_srli_epi64(leftCarry, 63);
+			leftKeys[w] = _mm512_slli_epi64(leftKeys[w], 1);
+			leftKeys[w] = _mm512_or_si512(leftKeys[w], leftCarry);
 
-			//parentKeys[w] = _mm_slli_si128(parentKeys[w], 1); // this does BYTE shift not BIT shifts!1!
+			__m512i rightCarry = _mm512_bslli_epi128(rightKeys[w], 8);
+			rightCarry = _mm512_srli_epi64(rightCarry, 63);
+			rightKeys[w] = _mm512_slli_epi64(rightKeys[w], 1);
+			rightKeys[w] = _mm512_or_si512(rightKeys[w], rightCarry);
 
 			// this is the actual AES input
 			leftData[w] = _mm512_xor_si512(leftData[w], leftKeys[w]);
@@ -634,20 +627,14 @@ void FixedKeyLTGarblingVaesProcessor::computeOutKeysAndTable(uint32_t tableCount
 
 		for (size_t w = 0; w < width; ++w)
 		{
-			// this assumes that we actually use the correct constant that sets the top bit
-			// this is the left shift by 1 bit
-			__m512i tempL = _mm512_slli_epi64(keys[w], 1);
-			__m512i tempR = _mm512_srli_epi64(keys[w], 63);
-			tempR = _mm512_shuffle_epi32(tempR, _MM_PERM_BADC); // 0x4E is 01 00 11 10 in binary which is exactly a 64-bit word lane swap, note that this instruction is within 128-bit lanes
-			__m512i topExtractor = _mm512_set_epi64(
-				~0, 0,
-				~0, 0,
-				~0, 0,
-				~0, 0);
-			__m512i topBit = _mm512_and_si512(tempR, topExtractor);
-			keys[w] = _mm512_xor_si512(tempL, topBit);
+			// this is the 128-bit leftshift code from https://stackoverflow.com/a/34482688/4733946
+			// as requested by User0 https://stackoverflow.com/users/5720018/user0
+			// and given by Peter Cordes https://stackoverflow.com/users/224132/peter-cordes
 
-			//parentKeys[w] = _mm_slli_si128(parentKeys[w], 1); // this does BYTE shift not BIT shifts!1!
+			__m512i carry = _mm512_bslli_epi128(keys[w], 8);
+			carry = _mm512_srli_epi64(carry, 63);
+			keys[w] = _mm512_slli_epi64(keys[w], 1);
+			keys[w] = _mm512_or_si512(keys[w], carry);
 
 			// this is the actual AES input
 			data[w] = _mm512_xor_si512(data[w], keys[w]);
