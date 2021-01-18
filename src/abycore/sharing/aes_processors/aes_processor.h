@@ -49,6 +49,13 @@ public:
 	virtual ~AESProcessorHalfGateGarbling() {};
 };
 
+class RandomizedProcessor {
+public:
+	virtual void setUniqueRandomValue(const uint8_t* val) = 0;
+
+	virtual ~RandomizedProcessor() {};
+};
+
 template<class CMainProcessor, class CLeftoversProcessor>
 class HybridHalfgateGarblingProcessor : public AESProcessorHalfGateGarbling
 {

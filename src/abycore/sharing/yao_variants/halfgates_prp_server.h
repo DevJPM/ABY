@@ -8,13 +8,15 @@ class HalfGatesPRPServerSharing : public YaoServerSharing {
 public:
 	/** Constructor of the class.*/
 	HalfGatesPRPServerSharing(e_sharing context, e_role role, uint32_t sharebitlen, ABYCircuit* circuit, crypto* crypt, const std::string& circdir = ABY_CIRCUIT_DIR) :
-		YaoServerSharing(context, role, sharebitlen, circuit, crypt, circdir)
+		YaoServerSharing(context, role, sharebitlen, circuit, crypt, circdir),
+		m_aesProcessor(provideGarblingProcessor())
 	{
 		InitServer();
 	}
 	/** Destructor of the class.*/
 	virtual ~HalfGatesPRPServerSharing() {}
 protected:
+
 	size_t ciphertextPerAND() const override { return 2; }
 	size_t ciphertextPerXOR() const override { return 0; }
 	void prepareGarblingSpecificSetup() override;
@@ -31,12 +33,13 @@ protected:
 	void copyServerInputKey(uint8_t inputBit, uint8_t permutationBit, size_t targetByteOffset, size_t sourceByteOffset) override;
 	uint8_t computePermutationValueFromBoolConv(uint8_t inputBit, uint8_t permutationBit) override { return inputBit ^ permutationBit; }
 
-	virtual std::unique_ptr<AESProcessorHalfGateGarbling> provideGarblingProcessor() const;
+	std::unique_ptr<AESProcessorHalfGateGarbling> m_aesProcessor;
 private:
+	std::unique_ptr<AESProcessorHalfGateGarbling> provideGarblingProcessor() const;
 	void InitServer();
 	void GarbleUniversalGate(GATE* ggate, uint32_t pos, GATE* gleft, GATE* gright, uint32_t ttable);
 
-	std::unique_ptr<AESProcessorHalfGateGarbling> m_aesProcessor;
+	
 	std::vector<std::unique_ptr<uint8_t[], free_byte_deleter>> m_bRMaskBuf;
 	std::vector<std::unique_ptr<uint8_t[], free_byte_deleter>> m_bLMaskBuf;
 	

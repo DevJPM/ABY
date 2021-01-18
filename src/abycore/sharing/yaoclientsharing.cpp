@@ -137,6 +137,8 @@ void YaoClientSharing::PrepareOnlinePhase() {
 }
 
 void YaoClientSharing::ReceiveGarbledCircuitAndOutputShares(ABYSetup* setup) {
+	receiveDataGarblingSpecific(setup);
+
 	if (m_vAndGateTable.GetSize() > 0)
 		setup->AddReceiveTask(m_vAndGateTable.GetArr(), ((uint64_t) m_nANDGates) * m_nSecParamBytes * ciphertextPerAND());
 	if (m_vXorGateTable.GetSize() > 0)

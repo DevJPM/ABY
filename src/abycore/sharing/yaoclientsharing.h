@@ -79,6 +79,7 @@ protected:
 	virtual bool evaluateUNIVGate(GATE* gate) = 0;
 
 	virtual void resetEvaluationSpecific() = 0;
+	virtual void receiveDataGarblingSpecific(ABYSetup* setup) {}
 
 	const std::vector<GATE*>& getAndQueue() const { return m_andQueue; }
 	const std::vector<GATE*>& getXorQueue() const { return m_xorQueue; }

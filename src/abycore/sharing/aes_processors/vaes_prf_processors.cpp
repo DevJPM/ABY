@@ -1,4 +1,6 @@
 #include "vaes_prf_processors.h"
+#include "vaes_helpers.h"
+#include "aesni_helpers.h"
 
 #include <cassert>
 
@@ -8,67 +10,6 @@
 #include <emmintrin.h>
 #include <immintrin.h>
 
-#include <iostream>
-#include <iomanip>
-
-// this is a trick from Rust:
-// assumes that this function will be inlined *and*
-// that the loop variable which is fed into location will be unrolled
-static inline __m512i mm512_insert_128(__m512i baseline, __m128i word, size_t location) {
-	switch (location & 0x03)
-	{
-	case 0:
-		return _mm512_inserti32x4(baseline, word, 0);
-	case 1:
-		return _mm512_inserti32x4(baseline, word, 1);
-	case 2:
-		return _mm512_inserti32x4(baseline, word, 2);
-	case 3:
-		return _mm512_inserti32x4(baseline, word, 3);
-	}
-}
-
-// this is a trick from Rust:
-// assumes that this function will be inlined *and*
-// that the loop variable which is fed into location will be unrolled
-static inline __m128i mm512_extract_128(__m512i baseline, size_t location) {
-	switch (location & 0x03)
-	{
-	case 0:
-		return _mm512_extracti32x4_epi32(baseline, 0);
-	case 1:
-		return _mm512_extracti32x4_epi32(baseline, 1);
-	case 2:
-		return _mm512_extracti32x4_epi32(baseline, 2);
-	case 3:
-		return _mm512_extracti32x4_epi32(baseline, 3);
-	}
-}
-
-static void PrintKey(__m512i data) {
-	uint8_t key[64];
-	_mm512_storeu_si512((__m512i*)key, data);
-
-	for (int j = 0; j < 64; j += 16)
-	{
-		for (uint32_t i = 0; i < 16; i++) {
-			std::cout << std::setw(2) << std::setfill('0') << (std::hex) << (uint32_t)key[i + j];
-		}
-		std::cout << std::endl;
-	}
-
-	std::cout << (std::dec);
-}
-
-static void PrintKey(__m128i data) {
-	uint8_t key[16];
-	_mm_storeu_si128((__m128i*)key, data);
-
-	for (uint32_t i = 0; i < 16; i++) {
-		std::cout << std::setw(2) << std::setfill('0') << (std::hex) << (uint32_t)key[i];
-	}
-	std::cout << (std::dec);
-}
 
 constexpr size_t mainEvaluatingWidthXor = 16;
 constexpr size_t mainEvaluatingWidthAnd = 16;
@@ -189,82 +130,9 @@ void PRFXorLTEvaluatingVaesProcessor::computeAESOutKeys(uint32_t tableCounter, s
 			}
 			
 			opbit[w] = _mm512_and_si512(opbit[w], widePermCleaner);
-
-			// AES preprocessing
-			leftData[w] = _mm512_xor_si512(leftData[w], leftKeys[w]);
-			rightData[w] = _mm512_xor_si512(rightData[w], rightKeys[w]);
 		}
 
-		// this uses the fast AES key expansion (i.e. not using keygenassist) from
-		// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
-		// page 37
-
-		__m512i rcon = _mm512_set1_epi32(1);
-		const __m512i shuffle_mask = _mm512_set1_epi32(0x0c0f0e0d);
-		const __m512i rcon_multiplier = _mm512_set1_epi8(2);
-		__m512i temp2[2 * num_words], temp3[2 * num_words];
-
-		for (size_t r = 1; r < 10; ++r) {
-			for (size_t w = 0; w < num_words; ++w)
-			{
-				temp2[2 * w + 0] = _mm512_shuffle_epi8(leftKeys[w], shuffle_mask);
-				temp2[2 * w + 0] = _mm512_aesenclast_epi128(temp2[2 * w + 0], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[2 * w + 0] = _mm512_bslli_epi128(leftKeys[w], 0x4);
-				leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-				temp3[2 * w + 0] = _mm512_bslli_epi128(temp3[2 * w + 0], 0x4);
-				leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-				temp3[2 * w + 0] = _mm512_bslli_epi128(temp3[2 * w + 0], 0x4);
-				leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-				leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp2[2 * w + 0]);
-
-				temp2[2 * w + 1] = _mm512_shuffle_epi8(rightKeys[w], shuffle_mask);
-				temp2[2 * w + 1] = _mm512_aesenclast_epi128(temp2[2 * w + 1], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[2 * w + 1] = _mm512_bslli_epi128(rightKeys[w], 0x4);
-				rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-				temp3[2 * w + 1] = _mm512_bslli_epi128(temp3[2 * w + 1], 0x4);
-				rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-				temp3[2 * w + 1] = _mm512_bslli_epi128(temp3[2 * w + 1], 0x4);
-				rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-				rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp2[2 * w + 1]);
-
-
-				leftData[w] = _mm512_aesenc_epi128(leftData[w], leftKeys[w]);
-				rightData[w] = _mm512_aesenc_epi128(rightData[w], rightKeys[w]);
-			}
-
-			rcon = _mm512_gf2p8mul_epi8(rcon, rcon_multiplier);
-		}
-
-		for (size_t w = 0; w < num_words; ++w)
-		{
-			temp2[2 * w + 0] = _mm512_shuffle_epi8(leftKeys[w], shuffle_mask);
-			temp2[2 * w + 0] = _mm512_aesenclast_epi128(temp2[2 * w + 0], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[2 * w + 0] = _mm512_bslli_epi128(leftKeys[w], 0x4);
-			leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-			temp3[2 * w + 0] = _mm512_bslli_epi128(temp3[2 * w + 0], 0x4);
-			leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-			temp3[2 * w + 0] = _mm512_bslli_epi128(temp3[2 * w + 0], 0x4);
-			leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-			leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp2[2 * w + 0]);
-
-			temp2[2 * w + 1] = _mm512_shuffle_epi8(rightKeys[w], shuffle_mask);
-			temp2[2 * w + 1] = _mm512_aesenclast_epi128(temp2[2 * w + 1], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[2 * w + 1] = _mm512_bslli_epi128(rightKeys[w], 0x4);
-			rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-			temp3[2 * w + 1] = _mm512_bslli_epi128(temp3[2 * w + 1], 0x4);
-			rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-			temp3[2 * w + 1] = _mm512_bslli_epi128(temp3[2 * w + 1], 0x4);
-			rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-			rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp2[2 * w + 1]);
-
-			leftData[w] = _mm512_aesenclast_epi128(leftData[w], leftKeys[w]);
-			rightData[w] = _mm512_aesenclast_epi128(rightData[w], rightKeys[w]);
-		}
-
+		vaes_encrypt_variable_keys(num_words, leftKeys, leftData, rightKeys, rightData);
 
 		for (size_t w = 0; w < num_words; ++w)
 		{
@@ -396,109 +264,7 @@ void PRFXorLTGarblingVaesProcessor::computeAESOutKeys(uint32_t tableCounter, siz
 
 		}
 
-		for (size_t w = 0; w < num_words; ++w)
-		{
-			leftDeltaData[w] = _mm512_xor_si512(leftDeltaData[w], leftDeltaKey[w]);
-			rightDeltaData[w] = _mm512_xor_si512(rightDeltaData[w], rightDeltaKey[w]);
-			rightPRFData[w] = _mm512_xor_si512(rightPRFData[w], rightPRFKey[w]);
-		}
-
-		// this uses the fast AES key expansion (i.e. not using keygenassist) from
-		// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
-		// page 37
-
-		__m512i rcon = _mm512_set1_epi32(1);
-		const __m512i shuffle_mask = _mm512_set1_epi32(0x0c0f0e0d);
-		const __m512i rcon_multiplier = _mm512_set1_epi8(2);
-		__m512i temp2[3 * num_words], temp3[3 * num_words];
-
-		for (size_t r = 1; r < 10; ++r) {
-//#pragma unroll
-			for (size_t w = 0; w < num_words; ++w)
-			{
-				temp2[3 * w + 0] = _mm512_shuffle_epi8(leftDeltaKey[w], shuffle_mask);
-				temp2[3 * w + 0] = _mm512_aesenclast_epi128(temp2[3 * w + 0], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[3 * w + 0] = _mm512_bslli_epi128(leftDeltaKey[w], 0x4);
-				leftDeltaKey[w] = _mm512_xor_si512(leftDeltaKey[w], temp3[3 * w + 0]);
-				temp3[3 * w + 0] = _mm512_bslli_epi128(temp3[3 * w + 0], 0x4);
-				leftDeltaKey[w] = _mm512_xor_si512(leftDeltaKey[w], temp3[3 * w + 0]);
-				temp3[3 * w + 0] = _mm512_bslli_epi128(temp3[3 * w + 0], 0x4);
-				leftDeltaKey[w] = _mm512_xor_si512(leftDeltaKey[w], temp3[3 * w + 0]);
-				leftDeltaKey[w] = _mm512_xor_si512(leftDeltaKey[w], temp2[3 * w + 0]);
-
-				temp2[3 * w + 1] = _mm512_shuffle_epi8(rightDeltaKey[w], shuffle_mask);
-				temp2[3 * w + 1] = _mm512_aesenclast_epi128(temp2[3 * w + 1], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[3 * w + 1] = _mm512_bslli_epi128(rightDeltaKey[w], 0x4);
-				rightDeltaKey[w] = _mm512_xor_si512(rightDeltaKey[w], temp3[3 * w + 1]);
-				temp3[3 * w + 1] = _mm512_bslli_epi128(temp3[3 * w + 1], 0x4);
-				rightDeltaKey[w] = _mm512_xor_si512(rightDeltaKey[w], temp3[3 * w + 1]);
-				temp3[3 * w + 1] = _mm512_bslli_epi128(temp3[3 * w + 1], 0x4);
-				rightDeltaKey[w] = _mm512_xor_si512(rightDeltaKey[w], temp3[3 * w + 1]);
-				rightDeltaKey[w] = _mm512_xor_si512(rightDeltaKey[w], temp2[3 * w + 1]);
-
-				temp2[3 * w + 2] = _mm512_shuffle_epi8(rightPRFKey[w], shuffle_mask);
-				temp2[3 * w + 2] = _mm512_aesenclast_epi128(temp2[3 * w + 2], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[3 * w + 2] = _mm512_bslli_epi128(rightPRFKey[w], 0x4);
-				rightPRFKey[w] = _mm512_xor_si512(rightPRFKey[w], temp3[3 * w + 2]);
-				temp3[3 * w + 2] = _mm512_bslli_epi128(temp3[3 * w + 2], 0x4);
-				rightPRFKey[w] = _mm512_xor_si512(rightPRFKey[w], temp3[3 * w + 2]);
-				temp3[3 * w + 2] = _mm512_bslli_epi128(temp3[3 * w + 2], 0x4);
-				rightPRFKey[w] = _mm512_xor_si512(rightPRFKey[w], temp3[3 * w + 2]);
-				rightPRFKey[w] = _mm512_xor_si512(rightPRFKey[w], temp2[3 * w + 2]);
-
-
-				leftDeltaData[w] = _mm512_aesenc_epi128(leftDeltaData[w], leftDeltaKey[w]);
-				rightDeltaData[w] = _mm512_aesenc_epi128(rightDeltaData[w], rightDeltaKey[w]);
-				rightPRFData[w] = _mm512_aesenc_epi128(rightPRFData[w], rightPRFKey[w]);
-			}
-
-			rcon = _mm512_gf2p8mul_epi8(rcon, rcon_multiplier);
-		}
-
-//#pragma unroll
-		for (size_t w = 0; w < num_words; ++w)
-		{
-			temp2[3 * w + 0] = _mm512_shuffle_epi8(leftDeltaKey[w], shuffle_mask);
-			temp2[3 * w + 0] = _mm512_aesenclast_epi128(temp2[3 * w + 0], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[3 * w + 0] = _mm512_bslli_epi128(leftDeltaKey[w], 0x4);
-			leftDeltaKey[w] = _mm512_xor_si512(leftDeltaKey[w], temp3[3 * w + 0]);
-			temp3[3 * w + 0] = _mm512_bslli_epi128(temp3[3 * w + 0], 0x4);
-			leftDeltaKey[w] = _mm512_xor_si512(leftDeltaKey[w], temp3[3 * w + 0]);
-			temp3[3 * w + 0] = _mm512_bslli_epi128(temp3[3 * w + 0], 0x4);
-			leftDeltaKey[w] = _mm512_xor_si512(leftDeltaKey[w], temp3[3 * w + 0]);
-			leftDeltaKey[w] = _mm512_xor_si512(leftDeltaKey[w], temp2[3 * w + 0]);
-
-			temp2[3 * w + 1] = _mm512_shuffle_epi8(rightDeltaKey[w], shuffle_mask);
-			temp2[3 * w + 1] = _mm512_aesenclast_epi128(temp2[3 * w + 1], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[3 * w + 1] = _mm512_bslli_epi128(rightDeltaKey[w], 0x4);
-			rightDeltaKey[w] = _mm512_xor_si512(rightDeltaKey[w], temp3[3 * w + 1]);
-			temp3[3 * w + 1] = _mm512_bslli_epi128(temp3[3 * w + 1], 0x4);
-			rightDeltaKey[w] = _mm512_xor_si512(rightDeltaKey[w], temp3[3 * w + 1]);
-			temp3[3 * w + 1] = _mm512_bslli_epi128(temp3[3 * w + 1], 0x4);
-			rightDeltaKey[w] = _mm512_xor_si512(rightDeltaKey[w], temp3[3 * w + 1]);
-			rightDeltaKey[w] = _mm512_xor_si512(rightDeltaKey[w], temp2[3 * w + 1]);
-
-			temp2[3 * w + 2] = _mm512_shuffle_epi8(rightPRFKey[w], shuffle_mask);
-			temp2[3 * w + 2] = _mm512_aesenclast_epi128(temp2[3 * w + 2], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[3 * w + 2] = _mm512_bslli_epi128(rightPRFKey[w], 0x4);
-			rightPRFKey[w] = _mm512_xor_si512(rightPRFKey[w], temp3[3 * w + 2]);
-			temp3[3 * w + 2] = _mm512_bslli_epi128(temp3[3 * w + 2], 0x4);
-			rightPRFKey[w] = _mm512_xor_si512(rightPRFKey[w], temp3[3 * w + 2]);
-			temp3[3 * w + 2] = _mm512_bslli_epi128(temp3[3 * w + 2], 0x4);
-			rightPRFKey[w] = _mm512_xor_si512(rightPRFKey[w], temp3[3 * w + 2]);
-			rightPRFKey[w] = _mm512_xor_si512(rightPRFKey[w], temp2[3 * w + 2]);
-
-			leftDeltaData[w] = _mm512_aesenclast_epi128(leftDeltaData[w], leftDeltaKey[w]);
-			rightDeltaData[w] = _mm512_aesenclast_epi128(rightDeltaData[w], rightDeltaKey[w]);
-			rightPRFData[w] = _mm512_aesenclast_epi128(rightPRFData[w], rightPRFKey[w]);
-		}
-
+		vaes_encrypt_variable_keys(num_words, leftDeltaKey, leftDeltaData, rightDeltaKey, rightDeltaData, rightPRFKey, rightPRFData);
 
 		for (size_t w = 0; w < num_words; ++w)
 		{
@@ -654,83 +420,7 @@ void PRFAndLTEvaluatingVaesProcessor::computeAESOutKeys(uint32_t tableCounter, s
 			opbit[w] = _mm512_and_si512(opbit[w], permBitExtractor);
 		}
 
-		for (size_t w = 0; w < num_words; ++w)
-		{
-			// AES preprocessing
-			leftData[w] = _mm512_xor_si512(leftData[w], leftKeys[w]);
-			rightData[w] = _mm512_xor_si512(rightData[w], rightKeys[w]);
-		}
-
-		// this uses the fast AES key expansion (i.e. not using keygenassist) from
-		// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
-		// page 37
-
-		__m512i rcon = _mm512_set1_epi32(1);
-		const __m512i shuffle_mask = _mm512_set1_epi32(0x0c0f0e0d);
-		const __m512i rcon_multiplier = _mm512_set1_epi8(2);
-		__m512i temp2[2 * num_words], temp3[2 * num_words];
-
-		for (size_t r = 1; r < 10; ++r) {
-			for (size_t w = 0; w < num_words; ++w)
-			{
-				temp2[2 * w + 0] = _mm512_shuffle_epi8(leftKeys[w], shuffle_mask);
-				temp2[2 * w + 0] = _mm512_aesenclast_epi128(temp2[2 * w + 0], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[2 * w + 0] = _mm512_bslli_epi128(leftKeys[w], 0x4);
-				leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-				temp3[2 * w + 0] = _mm512_bslli_epi128(temp3[2 * w + 0], 0x4);
-				leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-				temp3[2 * w + 0] = _mm512_bslli_epi128(temp3[2 * w + 0], 0x4);
-				leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-				leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp2[2 * w + 0]);
-
-				temp2[2 * w + 1] = _mm512_shuffle_epi8(rightKeys[w], shuffle_mask);
-				temp2[2 * w + 1] = _mm512_aesenclast_epi128(temp2[2 * w + 1], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[2 * w + 1] = _mm512_bslli_epi128(rightKeys[w], 0x4);
-				rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-				temp3[2 * w + 1] = _mm512_bslli_epi128(temp3[2 * w + 1], 0x4);
-				rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-				temp3[2 * w + 1] = _mm512_bslli_epi128(temp3[2 * w + 1], 0x4);
-				rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-				rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp2[2 * w + 1]);
-
-
-				leftData[w] = _mm512_aesenc_epi128(leftData[w], leftKeys[w]);
-				rightData[w] = _mm512_aesenc_epi128(rightData[w], rightKeys[w]);
-			}
-
-			rcon = _mm512_gf2p8mul_epi8(rcon, rcon_multiplier);
-		}
-
-		for (size_t w = 0; w < num_words; ++w)
-		{
-			temp2[2 * w + 0] = _mm512_shuffle_epi8(leftKeys[w], shuffle_mask);
-			temp2[2 * w + 0] = _mm512_aesenclast_epi128(temp2[2 * w + 0], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[2 * w + 0] = _mm512_bslli_epi128(leftKeys[w], 0x4);
-			leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-			temp3[2 * w + 0] = _mm512_bslli_epi128(temp3[2 * w + 0], 0x4);
-			leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-			temp3[2 * w + 0] = _mm512_bslli_epi128(temp3[2 * w + 0], 0x4);
-			leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp3[2 * w + 0]);
-			leftKeys[w] = _mm512_xor_si512(leftKeys[w], temp2[2 * w + 0]);
-
-			temp2[2 * w + 1] = _mm512_shuffle_epi8(rightKeys[w], shuffle_mask);
-			temp2[2 * w + 1] = _mm512_aesenclast_epi128(temp2[2 * w + 1], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[2 * w + 1] = _mm512_bslli_epi128(rightKeys[w], 0x4);
-			rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-			temp3[2 * w + 1] = _mm512_bslli_epi128(temp3[2 * w + 1], 0x4);
-			rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-			temp3[2 * w + 1] = _mm512_bslli_epi128(temp3[2 * w + 1], 0x4);
-			rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp3[2 * w + 1]);
-			rightKeys[w] = _mm512_xor_si512(rightKeys[w], temp2[2 * w + 1]);
-
-			leftData[w] = _mm512_aesenclast_epi128(leftData[w], leftKeys[w]);
-			rightData[w] = _mm512_aesenclast_epi128(rightData[w], rightKeys[w]);
-		}
-
+		vaes_encrypt_variable_keys(num_words, leftKeys, leftData, rightKeys, rightData);
 
 		for (size_t w = 0; w < num_words; ++w)
 		{
@@ -867,61 +557,7 @@ void PRFAndLTGarblingVaesProcessor::computeAESOutKeys(uint32_t tableCounter, siz
 			}
 		}
 
-		for (size_t w = 0; w < width; ++w)
-		{
-			data[2 * w + 0] = _mm512_xor_si512(data[2 * w + 0], parentKeys[w]);
-			data[2 * w + 1] = _mm512_xor_si512(data[2 * w + 1], parentKeys[w]);
-		}
-
-		// this uses the fast AES key expansion (i.e. not using keygenassist) from
-		// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
-		// page 37
-
-		__m512i rcon = _mm512_set1_epi32(1);
-		const __m512i shuffle_mask = _mm512_set1_epi32(0x0c0f0e0d);
-		const __m512i rcon_multiplier = _mm512_set1_epi8(2);
-		__m512i temp2[width], temp3[width];
-
-		for (size_t r = 1; r < 10; ++r)
-		{
-//#pragma unroll
-			for (size_t w = 0; w < width; ++w)
-			{
-				temp2[w] = _mm512_shuffle_epi8(parentKeys[w], shuffle_mask);
-				temp2[w] = _mm512_aesenclast_epi128(temp2[w], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[w] = _mm512_bslli_epi128(parentKeys[w], 0x4);
-				parentKeys[w] = _mm512_xor_si512(parentKeys[w], temp3[w]);
-				temp3[w] = _mm512_bslli_epi128(temp3[w], 0x4);
-				parentKeys[w] = _mm512_xor_si512(parentKeys[w], temp3[w]);
-				temp3[w] = _mm512_bslli_epi128(temp3[w], 0x4);
-				parentKeys[w] = _mm512_xor_si512(parentKeys[w], temp3[w]);
-				parentKeys[w] = _mm512_xor_si512(parentKeys[w], temp2[w]);
-
-				data[2 * w + 0] = _mm512_aesenc_epi128(data[2 * w + 0], parentKeys[w]);
-				data[2 * w + 1] = _mm512_aesenc_epi128(data[2 * w + 1], parentKeys[w]);
-			}
-
-			rcon = _mm512_gf2p8mul_epi8(rcon, rcon_multiplier);
-		}
-
-//#pragma unroll
-		for (size_t w = 0; w < width; ++w)
-		{
-			temp2[w] = _mm512_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm512_aesenclast_epi128(temp2[w], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[w] = _mm512_bslli_epi128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm512_xor_si512(parentKeys[w], temp3[w]);
-			temp3[w] = _mm512_bslli_epi128(temp3[w], 0x4);
-			parentKeys[w] = _mm512_xor_si512(parentKeys[w], temp3[w]);
-			temp3[w] = _mm512_bslli_epi128(temp3[w], 0x4);
-			parentKeys[w] = _mm512_xor_si512(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm512_xor_si512(parentKeys[w], temp2[w]);
-
-			data[2 * w + 0] = _mm512_aesenclast_epi128(data[2 * w + 0], parentKeys[w]);
-			data[2 * w + 1] = _mm512_aesenclast_epi128(data[2 * w + 1], parentKeys[w]);
-		}
+		vaes_encrypt_variable_keys_variable_data<width, 2>(parentKeys, data);
 
 		for (size_t w = 0; w < width; ++w)
 		{

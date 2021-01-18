@@ -322,6 +322,10 @@ void YaoServerSharing::CreateAndSendGarbledCircuit(ABYSetup* setup) {
 	if (maxdepth == 0)
 		return;
 
+	// need to send here because the below loop
+	// will actually already start sending AND garbled tables
+	sendDataGarblingSpecific(setup);
+
 	for (uint32_t i = 0; i < maxdepth; i++) {
 		std::deque<uint32_t> localqueue = m_cBoolCircuit->GetLocalQueueOnLvl(i);
 		//if (localqueue.size() > 0)

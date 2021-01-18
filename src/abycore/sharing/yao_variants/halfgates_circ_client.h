@@ -9,9 +9,10 @@ public:
 	HalfGatesCircClientSharing(e_sharing context, e_role role, uint32_t sharebitlen, ABYCircuit* circuit, crypto* crypt, const std::string& circdir = ABY_CIRCUIT_DIR) :
 		HalfGatesPRPClientSharing(context, role, sharebitlen, circuit, crypt, circdir)
 	{
+		m_aesProcessor = provideEvaluationProcessor();
 	}
-protected:
-	std::unique_ptr<AESProcessor> provideEvaluationProcessor() const override;
+private:
+	std::unique_ptr<AESProcessor> provideEvaluationProcessor() const;
 };
 
 #endif

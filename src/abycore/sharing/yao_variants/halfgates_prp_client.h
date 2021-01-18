@@ -7,8 +7,9 @@ class HalfGatesPRPClientSharing : public YaoClientSharing {
 public:
 	/** Constructor of the class.*/
 	HalfGatesPRPClientSharing(e_sharing context, e_role role, uint32_t sharebitlen, ABYCircuit* circuit, crypto* crypt, const std::string& circdir = ABY_CIRCUIT_DIR) :
-		YaoClientSharing(context, role, sharebitlen, circuit, crypt, circdir) {
-		InitClient();
+		YaoClientSharing(context, role, sharebitlen, circuit, crypt, circdir),
+		m_aesProcessor(provideEvaluationProcessor())
+	{
 	}
 	/** Destructor of the class.*/
 	virtual ~HalfGatesPRPClientSharing() {}
@@ -24,13 +25,13 @@ protected:
 
 	inline void resetEvaluationSpecific() override {}
 
-	virtual std::unique_ptr<AESProcessor> provideEvaluationProcessor() const;
+	std::unique_ptr<AESProcessor> m_aesProcessor; /**< Processor for the generation of the garbled table PRF calls in a more optimized way*/
 private:
-	void InitClient();
+	std::unique_ptr<AESProcessor> provideEvaluationProcessor() const;
 	void EvaluateGarbledTablePrepared(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright);
 	void EvaluateUniversalGate(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright);
 
-	std::unique_ptr<AESProcessor> m_aesProcessor; /**< Processor for the generation of the garbled table PRF calls in a more optimized way*/
+	
 };
 
 #endif

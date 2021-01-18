@@ -5,6 +5,7 @@
 #include "../cpu_features/include/cpuinfo_x86.h"
 
 #include <emmintrin.h>
+#include <iostream>
 
 static const cpu_features::X86Features CPU_FEATURES = cpu_features::GetX86Info().features;
 
@@ -284,6 +285,4 @@ void HalfGatesPRPServerSharing::InitServer()
 	m_bLMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
 	m_bRMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
 	m_bRMaskBuf.emplace_back(static_cast<uint8_t*>(std::aligned_alloc(16, m_nSecParamBytes)));
-
-	m_aesProcessor = provideGarblingProcessor();
 }

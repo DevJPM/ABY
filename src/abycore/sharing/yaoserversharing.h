@@ -95,6 +95,7 @@ protected:
 
 	virtual void prepareGarblingSpecificSetup() = 0;
 	virtual void resetGarblingSpecific() = 0;
+	virtual void sendDataGarblingSpecific(ABYSetup* setup) {}
 
 	const std::vector<GATE*>& getAndQueue() const { return m_andQueue; }
 	const std::vector<GATE*>& getXorQueue() const { return m_xorQueue; }

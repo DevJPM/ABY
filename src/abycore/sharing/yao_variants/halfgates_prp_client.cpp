@@ -76,11 +76,6 @@ std::unique_ptr<AESProcessor> HalfGatesPRPClientSharing::provideEvaluationProces
 	}
 }
 
-void HalfGatesPRPClientSharing::InitClient()
-{
-	m_aesProcessor = provideEvaluationProcessor();	
-}
-
 void HalfGatesPRPClientSharing::evaluateDeferredANDGates(size_t numWires)
 {
 	// the buffers are needed for the batch processing
@@ -107,7 +102,6 @@ void HalfGatesPRPClientSharing::evaluateDeferredANDGates(size_t numWires)
 
 void HalfGatesPRPClientSharing::EvaluateGarbledTablePrepared(GATE* gate, uint32_t pos, GATE* gleft, GATE* gright)
 {
-
 	uint8_t* lkey, * rkey, * okey, * gtptr;
 	uint8_t lpbit, rpbit;
 

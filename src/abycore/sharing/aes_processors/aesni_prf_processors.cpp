@@ -1,4 +1,5 @@
 #include "aesni_prf_processors.h"
+#include "aesni_helpers.h"
 
 #include <cassert>
 
@@ -14,16 +15,6 @@ constexpr size_t mainEvaluatingWidthXor = 4;
 constexpr size_t mainEvaluatingWidthAnd = 4; // 4
 constexpr size_t mainGarblingWidthAnd = 2;
 constexpr size_t mainGarblingWidthXor = 3;
-
-static void PrintKey(__m128i data) {
-	uint8_t key[16];
-	_mm_storeu_si128((__m128i*)key, data);
-
-	for (uint32_t i = 0; i < 16; i++) {
-		std::cout << std::setw(2) << std::setfill('0') << (std::hex) << (uint32_t)key[i];
-	}
-	std::cout << (std::dec);
-}
 
 void PRFXorLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, size_t numTablesInBatch, uint8_t* receivedTables)
 {
@@ -131,71 +122,7 @@ void PRFXorLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 			}
 		}
 
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			data[w] = _mm_xor_si128(data[w], parentKeys[w]);
-		}
-
-		// this uses the fast AES key expansion (i.e. not using keygenassist) from
-		// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
-		// page 37
-
-		__m128i temp2[num_keys], temp3[num_keys];
-		const __m128i shuffle_mask =
-			_mm_set_epi32(0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d);
-		__m128i rcon;
-
-		rcon = _mm_set_epi32(1, 1, 1, 1);
-		for (int r = 1; r <= 8; r++) {
-			for (size_t w = 0; w < num_keys; ++w)
-			{
-				temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-				temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-
-				data[w] = _mm_aesenc_si128(data[w], parentKeys[w]);
-			}
-			rcon = _mm_slli_epi32(rcon, 1);
-		}
-		rcon = _mm_set_epi32(0x1b, 0x1b, 0x1b, 0x1b);
-
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-			data[w] = _mm_aesenc_si128(data[w], parentKeys[w]);
-		}
-		rcon = _mm_slli_epi32(rcon, 1);
-
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-			temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-			data[w] = _mm_aesenclast_si128(data[w], parentKeys[w]);
-		}
-
+		aesni_encrypt_variable_keys<num_keys, 1>(parentKeys, data);
 
 		for (size_t w = 0; w < width; ++w)
 		{
@@ -347,71 +274,7 @@ void PRFXorLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			}
 		}
 
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			data[w] = _mm_xor_si128(data[w], parentKeys[w]);
-		}
-
-		// this uses the fast AES key expansion (i.e. not using keygenassist) from
-		// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
-		// page 37
-
-		__m128i temp2[num_keys], temp3[num_keys];
-		const __m128i shuffle_mask =
-			_mm_set_epi32(0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d);
-		__m128i rcon;
-
-		rcon = _mm_set_epi32(1, 1, 1, 1);
-		for (int r = 1; r <= 8; r++) {
-			for (size_t w = 0; w < num_keys; ++w)
-			{
-				temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-				temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-
-				data[w] = _mm_aesenc_si128(data[w], parentKeys[w]);
-			}
-			rcon = _mm_slli_epi32(rcon, 1);
-		}
-		rcon = _mm_set_epi32(0x1b, 0x1b, 0x1b, 0x1b);
-
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-			data[w] = _mm_aesenc_si128(data[w], parentKeys[w]);
-		}
-		rcon = _mm_slli_epi32(rcon, 1);
-
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-			temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-			data[w] = _mm_aesenclast_si128(data[w], parentKeys[w]);
-		}
-
+		aesni_encrypt_variable_keys<num_keys, 1>(parentKeys, data);
 
 		for (size_t w = 0; w < width; ++w)
 		{
@@ -573,71 +436,7 @@ void PRFAndLTEvaluatingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, 
 			}
 		}
 
-		for (size_t w = 0; w < numkeys; ++w)
-		{
-			data[w] = _mm_xor_si128(data[w], parentKeys[w]);
-		}
-
-		// this uses the fast AES key expansion (i.e. not using keygenassist) from
-		// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
-		// page 37
-
-		__m128i temp2[numkeys], temp3[numkeys];
-		const __m128i shuffle_mask =
-			_mm_set_epi32(0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d);
-		__m128i rcon;
-
-		rcon = _mm_set_epi32(1, 1, 1, 1);
-		for (int r = 1; r <= 8; r++) {
-			for (size_t w = 0; w < numkeys; ++w)
-			{
-				temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-				temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-
-				data[w] = _mm_aesenc_si128(data[w], parentKeys[w]);
-			}
-			rcon = _mm_slli_epi32(rcon, 1);
-		}
-		rcon = _mm_set_epi32(0x1b, 0x1b, 0x1b, 0x1b);
-
-		for (size_t w = 0; w < numkeys; ++w)
-		{
-			temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-			data[w] = _mm_aesenc_si128(data[w], parentKeys[w]);
-		}
-		rcon = _mm_slli_epi32(rcon, 1);
-
-		for (size_t w = 0; w < numkeys; ++w)
-		{
-			temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-			temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-			data[w] = _mm_aesenclast_si128(data[w], parentKeys[w]);
-		}
-
+		aesni_encrypt_variable_keys<numkeys, 1>(parentKeys, data);
 
 		for (size_t w = 0; w < width; ++w)
 		{
@@ -791,74 +590,7 @@ void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			}
 		}
 
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			data[2 * w + 0] = _mm_xor_si128(data[2 * w + 0], parentKeys[w]);
-			data[2 * w + 1] = _mm_xor_si128(data[2 * w + 1], parentKeys[w]);
-		}
-
-		// this uses the fast AES key expansion (i.e. not using keygenassist) from
-		// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
-		// page 37
-
-		__m128i temp2[num_keys], temp3[num_keys];
-		const __m128i shuffle_mask =
-			_mm_set_epi32(0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d);
-		__m128i rcon;
-
-		rcon = _mm_set_epi32(1, 1, 1, 1);
-		for (int r = 1; r <= 8; r++) {
-			for (size_t w = 0; w < num_keys; ++w)
-			{
-				temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-				temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-				// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-				temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-				parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-
-				data[2 * w + 0] = _mm_aesenc_si128(data[2 * w + 0], parentKeys[w]);
-				data[2 * w + 1] = _mm_aesenc_si128(data[2 * w + 1], parentKeys[w]);
-			}
-			rcon = _mm_slli_epi32(rcon, 1);
-		}
-		rcon = _mm_set_epi32(0x1b, 0x1b, 0x1b, 0x1b);
-
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-			data[2 * w + 0] = _mm_aesenc_si128(data[2 * w + 0], parentKeys[w]);
-			data[2 * w + 1] = _mm_aesenc_si128(data[2 * w + 1], parentKeys[w]);
-		}
-		rcon = _mm_slli_epi32(rcon, 1);
-
-		for (size_t w = 0; w < num_keys; ++w)
-		{
-			temp2[w] = _mm_shuffle_epi8(parentKeys[w], shuffle_mask);
-			temp2[w] = _mm_aesenclast_si128(temp2[w], rcon);
-			temp3[w] = _mm_slli_si128(parentKeys[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			temp3[w] = _mm_slli_si128(temp3[w], 0x4);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp3[w]);
-			parentKeys[w] = _mm_xor_si128(parentKeys[w], temp2[w]);
-			data[2 * w + 0] = _mm_aesenclast_si128(data[2 * w + 0], parentKeys[w]);
-			data[2 * w + 1] = _mm_aesenclast_si128(data[2 * w + 1], parentKeys[w]);
-		}
+		aesni_encrypt_variable_keys<num_keys, 2>(parentKeys, data);
 
 		for (size_t w = 0; w < width; ++w)
 		{
@@ -879,8 +611,6 @@ void PRFAndLTGarblingAesniProcessor::computeAESOutKeys(uint32_t tableCounter, si
 			std::cout << std::endl;
 			*/
 			
-
-			// TODO: clear bit
 
 			const __m128i tripleRedux = _mm_xor_si128(key3, _mm_xor_si128(key1, key2));
 			if (combined_bits[w] != 0) {
