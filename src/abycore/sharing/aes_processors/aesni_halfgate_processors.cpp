@@ -374,9 +374,10 @@ static void expandAESKey(__m128i userkey, uint8_t* alignedStoragePointer)
 	// https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
 	// page 37
 
-	__m128i temp1, temp2, temp3;
-	__m128i shuffle_mask =
+	__m128i temp1, temp2, temp3, globAux;
+	const __m128i shuffle_mask =
 		_mm_set_epi32(0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d);
+	const __m128i con3 = _mm_set_epi32(0x07060504, 0x07060504, 0x0ffffffff, 0x0ffffffff);
 	__m128i rcon;
 	temp1 = userkey;
 	rcon = _mm_set_epi32(1, 1, 1, 1);
@@ -385,36 +386,30 @@ static void expandAESKey(__m128i userkey, uint8_t* alignedStoragePointer)
 		temp2 = _mm_shuffle_epi8(temp1, shuffle_mask);
 		temp2 = _mm_aesenclast_si128(temp2, rcon);
 		rcon = _mm_slli_epi32(rcon, 1);
-		temp3 = _mm_slli_si128(temp1, 0x4);
-		temp1 = _mm_xor_si128(temp1, temp3);
-		temp3 = _mm_slli_si128(temp3, 0x4);
-		temp1 = _mm_xor_si128(temp1, temp3);
-		temp3 = _mm_slli_si128(temp3, 0x4);
-		temp1 = _mm_xor_si128(temp1, temp3);
-		temp1 = _mm_xor_si128(temp1, temp2);
+		globAux = _mm_slli_epi64(temp1, 32);
+		temp1 = _mm_xor_si128(globAux, temp1);
+		globAux = _mm_shuffle_epi8(temp1, con3);
+		temp1 = _mm_xor_si128(globAux, temp1);
+		temp1 = _mm_xor_si128(temp2, temp1);
 		_mm_store_si128((__m128i*)(alignedStoragePointer + i * 16), temp1);
 	}
 	rcon = _mm_set_epi32(0x1b, 0x1b, 0x1b, 0x1b);
 	temp2 = _mm_shuffle_epi8(temp1, shuffle_mask);
 	temp2 = _mm_aesenclast_si128(temp2, rcon);
 	rcon = _mm_slli_epi32(rcon, 1);
-	temp3 = _mm_slli_si128(temp1, 0x4);
-	temp1 = _mm_xor_si128(temp1, temp3);
-	temp3 = _mm_slli_si128(temp3, 0x4);
-	temp1 = _mm_xor_si128(temp1, temp3);
-	temp3 = _mm_slli_si128(temp3, 0x4);
-	temp1 = _mm_xor_si128(temp1, temp3);
-	temp1 = _mm_xor_si128(temp1, temp2);
+	globAux = _mm_slli_epi64(temp1, 32);
+	temp1 = _mm_xor_si128(globAux, temp1);
+	globAux = _mm_shuffle_epi8(temp1, con3);
+	temp1 = _mm_xor_si128(globAux, temp1);
+	temp1 = _mm_xor_si128(temp2, temp1);
 	_mm_store_si128((__m128i*)(alignedStoragePointer + 9 * 16), temp1);
 	temp2 = _mm_shuffle_epi8(temp1, shuffle_mask);
 	temp2 = _mm_aesenclast_si128(temp2, rcon);
-	temp3 = _mm_slli_si128(temp1, 0x4);
-	temp1 = _mm_xor_si128(temp1, temp3);
-	temp3 = _mm_slli_si128(temp3, 0x4);
-	temp1 = _mm_xor_si128(temp1, temp3);
-	temp3 = _mm_slli_si128(temp3, 0x4);
-	temp1 = _mm_xor_si128(temp1, temp3);
-	temp1 = _mm_xor_si128(temp1, temp2);
+	globAux = _mm_slli_epi64(temp1, 32);
+	temp1 = _mm_xor_si128(globAux, temp1);
+	globAux = _mm_shuffle_epi8(temp1, con3);
+	temp1 = _mm_xor_si128(globAux, temp1);
+	temp1 = _mm_xor_si128(temp2, temp1);
 	_mm_store_si128((__m128i*)(alignedStoragePointer + 10 * 16), temp1);
 }
 

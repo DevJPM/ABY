@@ -17,6 +17,7 @@ static inline __attribute__((always_inline)) void aesni_encrypt_variable_keys(__
 
 	const __m128i shuffle_mask =
 		_mm_set_epi32(0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d, 0x0c0f0e0d);
+	const __m128i con3 = _mm_set_epi32(0x07060504, 0x07060504, 0x0ffffffff, 0x0ffffffff);
 	__m128i rcon;
 
 	for (size_t w = 0; w < key_width; ++w) {
@@ -29,17 +30,14 @@ static inline __attribute__((always_inline)) void aesni_encrypt_variable_keys(__
 	for (size_t r = 1; r <= 8; r++) {
 		for (size_t w = 0; w < key_width; ++w)
 		{
-			__m128i temp2, temp3;
-			temp2 = _mm_shuffle_epi8(keys[w], shuffle_mask);
+			__m128i temp2 = _mm_shuffle_epi8(keys[w], shuffle_mask);
 			temp2 = _mm_aesenclast_si128(temp2, rcon);
 			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3 = _mm_slli_si128(keys[w], 0x4);
-			keys[w] = _mm_xor_si128(keys[w], temp3);
-			temp3 = _mm_slli_si128(temp3, 0x4);
-			keys[w] = _mm_xor_si128(keys[w], temp3);
-			temp3 = _mm_slli_si128(temp3, 0x4);
-			keys[w] = _mm_xor_si128(keys[w], temp3);
-			keys[w] = _mm_xor_si128(keys[w], temp2);
+			__m128i globAux = _mm_slli_epi64(keys[w], 32);
+			keys[w] = _mm_xor_si128(globAux, keys[w]);
+			globAux = _mm_shuffle_epi8(keys[w], con3);
+			keys[w] = _mm_xor_si128(globAux, keys[w]);
+			keys[w] = _mm_xor_si128(temp2, keys[w]);
 
 			for (size_t d = 0; d < data_per_key; ++d) {
 				data[w * data_per_key + d] = _mm_aesenc_si128(data[w * data_per_key + d], keys[w]);
@@ -55,13 +53,11 @@ static inline __attribute__((always_inline)) void aesni_encrypt_variable_keys(__
 		temp2 = _mm_shuffle_epi8(keys[w], shuffle_mask);
 		temp2 = _mm_aesenclast_si128(temp2, rcon);
 		// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-		temp3 = _mm_slli_si128(keys[w], 0x4);
-		keys[w] = _mm_xor_si128(keys[w], temp3);
-		temp3 = _mm_slli_si128(temp3, 0x4);
-		keys[w] = _mm_xor_si128(keys[w], temp3);
-		temp3 = _mm_slli_si128(temp3, 0x4);
-		keys[w] = _mm_xor_si128(keys[w], temp3);
-		keys[w] = _mm_xor_si128(keys[w], temp2);
+		__m128i globAux = _mm_slli_epi64(keys[w], 32);
+		keys[w] = _mm_xor_si128(globAux, keys[w]);
+		globAux = _mm_shuffle_epi8(keys[w], con3);
+		keys[w] = _mm_xor_si128(globAux, keys[w]);
+		keys[w] = _mm_xor_si128(temp2, keys[w]);
 
 		for (size_t d = 0; d < data_per_key; ++d) {
 			data[w * data_per_key + d] = _mm_aesenc_si128(data[w * data_per_key + d], keys[w]);
@@ -74,13 +70,11 @@ static inline __attribute__((always_inline)) void aesni_encrypt_variable_keys(__
 		__m128i temp2, temp3;
 		temp2 = _mm_shuffle_epi8(keys[w], shuffle_mask);
 		temp2 = _mm_aesenclast_si128(temp2, rcon);
-		temp3 = _mm_slli_si128(keys[w], 0x4);
-		keys[w] = _mm_xor_si128(keys[w], temp3);
-		temp3 = _mm_slli_si128(temp3, 0x4);
-		keys[w] = _mm_xor_si128(keys[w], temp3);
-		temp3 = _mm_slli_si128(temp3, 0x4);
-		keys[w] = _mm_xor_si128(keys[w], temp3);
-		keys[w] = _mm_xor_si128(keys[w], temp2);
+		__m128i globAux = _mm_slli_epi64(keys[w], 32);
+		keys[w] = _mm_xor_si128(globAux, keys[w]);
+		globAux = _mm_shuffle_epi8(keys[w], con3);
+		keys[w] = _mm_xor_si128(globAux, keys[w]);
+		keys[w] = _mm_xor_si128(temp2, keys[w]);
 
 		for (size_t d = 0; d < data_per_key; ++d) {
 			data[w * data_per_key + d] = _mm_aesenclast_si128(data[w * data_per_key + d], keys[w]);

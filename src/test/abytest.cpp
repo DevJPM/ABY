@@ -54,7 +54,7 @@ int main(int argc, char** argv) {
 
 	seclvl seclvl = get_sec_lvl(secparam);
 
-	//run_tests(role, (char*) address.c_str(), port, seclvl, bitlen, nvals, nthreads, mt_alg, test_op, num_test_runs, quiet, ignore_verification, randomseed);
+	run_tests(role, (char*) address.c_str(), port, seclvl, bitlen, nvals, nthreads, mt_alg, test_op, num_test_runs, quiet, ignore_verification, randomseed);
 
 	//if (test_op == -1) {
 		//Test the AES circuit

@@ -40,14 +40,14 @@
 // it is strongly recommended to only define one of them
 // when defining more than one the strongest assumption (i.e. the "least likely to hold") is chosen for the implementation
 
-#define YAO_AES_MULTI_INSTANCE
+//#define YAO_AES_MULTI_INSTANCE
 //#define YAO_AES_IS_PRP
-//#define YAO_AES_IS_CIRCULAR_SECURE
+#define YAO_AES_IS_CIRCULAR_SECURE
 #define YAO_AES_IS_PRF
 
-#define ENABLE_VAES false
+#define ENABLE_VAES true
 // Hybrid requires VAES to be enabled
-#define ENABLE_HYBRID true
+#define ENABLE_HYBRID false
 
 #define BATCH
 

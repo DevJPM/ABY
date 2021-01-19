@@ -71,6 +71,7 @@ template< typename enc_op_t, typename... ops>
 static inline __attribute__((always_inline)) void vaes_encrypt_one_round_variable_keys(
 	const enc_op_t enc_op,
 	const __m512i shuffle_mask,
+	const __m512i con3,
 	const __m512i rcon,
 	const size_t w,
 	__m512i key[],
@@ -82,18 +83,16 @@ static inline __attribute__((always_inline)) void vaes_encrypt_one_round_variabl
 	temp2 = _mm512_shuffle_epi8(key[w], shuffle_mask);
 	temp2 = _mm512_aesenclast_epi128(temp2, rcon);
 	// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-	temp3 = _mm512_bslli_epi128(key[w], 0x4);
-	key[w] = _mm512_xor_si512(key[w], temp3);
-	temp3 = _mm512_bslli_epi128(temp3, 0x4);
-	key[w] = _mm512_xor_si512(key[w], temp3);
-	temp3 = _mm512_bslli_epi128(temp3, 0x4);
-	key[w] = _mm512_xor_si512(key[w], temp3);
-	key[w] = _mm512_xor_si512(key[w], temp2);
+	__m512i globAux = _mm512_slli_epi64(key[w], 32);
+	key[w] = _mm512_xor_si512(globAux, key[w]);
+	globAux = _mm512_shuffle_epi8(key[w], con3);
+	key[w] = _mm512_xor_si512(globAux, key[w]);
+	key[w] = _mm512_xor_si512(temp2, key[w]);
 
 	data[w] = enc_op(data[w], key[w]);
 
 	if constexpr (sizeof...(ops) > 0) {
-		vaes_encrypt_one_round_variable_keys(enc_op, shuffle_mask, rcon, w, remainder...);
+		vaes_encrypt_one_round_variable_keys(enc_op, shuffle_mask, con3, rcon, w, remainder...);
 	}
 }
 
@@ -110,6 +109,8 @@ static inline __attribute__((always_inline)) void vaes_encrypt_variable_keys(con
 
 	__m512i rcon = _mm512_set1_epi32(1);
 	const __m512i shuffle_mask = _mm512_set1_epi32(0x0c0f0e0d);
+	const __m128i con3 = _mm_set_epi32(0x07060504, 0x07060504, 0x0ffffffff, 0x0ffffffff);
+	const __m512i wideCon3 = _mm512_broadcast_i32x4(con3);
 	const __m512i rcon_multiplier = _mm512_set1_epi8(2);
 
 	for (size_t r = 1; r < 10; ++r)
@@ -117,7 +118,7 @@ static inline __attribute__((always_inline)) void vaes_encrypt_variable_keys(con
 		for (size_t w = 0; w < width; ++w)
 		{
 			const auto enc_op_lambda = [](const __m512i data, const __m512i key) {return _mm512_aesenc_epi128(data, key); };
-			vaes_encrypt_one_round_variable_keys(enc_op_lambda, shuffle_mask, rcon, w, keydata...);
+			vaes_encrypt_one_round_variable_keys(enc_op_lambda, shuffle_mask, wideCon3, rcon, w, keydata...);
 		}
 
 		rcon = _mm512_gf2p8mul_epi8(rcon, rcon_multiplier);
@@ -126,7 +127,7 @@ static inline __attribute__((always_inline)) void vaes_encrypt_variable_keys(con
 	for (size_t w = 0; w < width; ++w)
 	{
 		const auto enc_op_lambda = [](const __m512i data, const __m512i key) {return _mm512_aesenclast_epi128(data, key); };
-		vaes_encrypt_one_round_variable_keys(enc_op_lambda, shuffle_mask, rcon, w, keydata...);
+		vaes_encrypt_one_round_variable_keys(enc_op_lambda, shuffle_mask, wideCon3, rcon, w, keydata...);
 	}
 }
 
@@ -143,6 +144,8 @@ static inline __attribute__((always_inline)) void vaes_encrypt_variable_keys_var
 
 	__m512i rcon = _mm512_set1_epi32(1);
 	const __m512i shuffle_mask = _mm512_set1_epi32(0x0c0f0e0d);
+	const __m128i smallCon3 = _mm_set_epi32(0x07060504, 0x07060504, 0x0ffffffff, 0x0ffffffff);
+	const __m512i con3 = _mm512_broadcast_i32x4(smallCon3);
 	const __m512i rcon_multiplier = _mm512_set1_epi8(2);
 
 	for (size_t r = 1; r < 10; ++r)
@@ -153,13 +156,11 @@ static inline __attribute__((always_inline)) void vaes_encrypt_variable_keys_var
 			temp2 = _mm512_shuffle_epi8(keys[w], shuffle_mask);
 			temp2 = _mm512_aesenclast_epi128(temp2, rcon);
 			// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-			temp3 = _mm512_bslli_epi128(keys[w], 0x4);
-			keys[w] = _mm512_xor_si512(keys[w], temp3);
-			temp3 = _mm512_bslli_epi128(temp3, 0x4);
-			keys[w] = _mm512_xor_si512(keys[w], temp3);
-			temp3 = _mm512_bslli_epi128(temp3, 0x4);
-			keys[w] = _mm512_xor_si512(keys[w], temp3);
-			keys[w] = _mm512_xor_si512(keys[w], temp2);
+			__m512i globAux = _mm512_slli_epi64(keys[w], 32);
+			keys[w] = _mm512_xor_si512(globAux, keys[w]);
+			globAux = _mm512_shuffle_epi8(keys[w], con3);
+			keys[w] = _mm512_xor_si512(globAux, keys[w]);
+			keys[w] = _mm512_xor_si512(temp2, keys[w]);
 
 			for (size_t d = 0; d < data_per_key; ++d)
 				data[w * data_per_key + d] = _mm512_aesenc_epi128(data[w * data_per_key + d], keys[w]);
@@ -174,13 +175,11 @@ static inline __attribute__((always_inline)) void vaes_encrypt_variable_keys_var
 		temp2 = _mm512_shuffle_epi8(keys[w], shuffle_mask);
 		temp2 = _mm512_aesenclast_epi128(temp2, rcon);
 		// the rcon update used to be here, moved it out because otherwise correctness would fail due to the inner loop
-		temp3 = _mm512_bslli_epi128(keys[w], 0x4);
-		keys[w] = _mm512_xor_si512(keys[w], temp3);
-		temp3 = _mm512_bslli_epi128(temp3, 0x4);
-		keys[w] = _mm512_xor_si512(keys[w], temp3);
-		temp3 = _mm512_bslli_epi128(temp3, 0x4);
-		keys[w] = _mm512_xor_si512(keys[w], temp3);
-		keys[w] = _mm512_xor_si512(keys[w], temp2);
+		__m512i globAux = _mm512_slli_epi64(keys[w], 32);
+		keys[w] = _mm512_xor_si512(globAux, keys[w]);
+		globAux = _mm512_shuffle_epi8(keys[w], con3);
+		keys[w] = _mm512_xor_si512(globAux, keys[w]);
+		keys[w] = _mm512_xor_si512(temp2, keys[w]);
 
 		for (size_t d = 0; d < data_per_key; ++d)
 			data[w * data_per_key + d] = _mm512_aesenclast_epi128(data[w * data_per_key + d], keys[w]);
