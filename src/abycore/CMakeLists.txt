@@ -19,6 +19,8 @@ add_library(aby
     sharing/yao_variants/halfgates_prp_server.cpp
     sharing/yao_variants/halfgates_circ_server.cpp
     sharing/yao_variants/halfgates_circ_client.cpp
+    sharing/yao_variants/halfgates_mi_server.cpp
+    sharing/yao_variants/halfgates_mi_client.cpp
     sharing/yao_variants/prf_server.cpp 
     sharing/yao_variants/prf_client.cpp
     sharing/aes_processors/aes_processor.cpp
